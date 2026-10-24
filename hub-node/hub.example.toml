@@ -1,0 +1,26 @@
+# Copy to /etc/ffa-hub/hub.toml on the Raspberry Pi.
+
+# identity.key, paired.json, pc_pairing.json and hub.db live here.
+data_dir = "/var/lib/ffa-hub"
+
+# Wi-Fi nodes send UDP frames here (port must match crypto-sharecrate/src/radio.rs).
+udp_listen = "0.0.0.0:7300"
+
+# The PC running pc-daemon. Give the PC a fixed IP (DHCP reservation) on your router.
+pc_addr = "192.168.1.50:7400"
+
+# How often the RAM database is written to the SD card (seconds). Default: once a day.
+flush_interval_secs = 86400
+
+[lora]
+# Set to true once the SX1262 is wired up AND the hub was built with --features lora.
+enabled = false
+spi_bus = 0
+spi_cs = 0
+# BCM GPIO numbers. NSS is fixed at GPIO25 (see hub-node/src/radio/lora.rs).
+reset_pin = 22
+busy_pin = 23
+dio1_pin = 24
+frequency = 915000000      # US. EU: 868100000
+spreading_factor = 7       # must match the nodes
+tcxo = false               # true for Ebyte E22 and other TCXO modules

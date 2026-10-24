@@ -1,0 +1,16 @@
+[target.riscv32imc-unknown-none-elf]
+# `cargo run --release` flashes the board over USB and opens the serial monitor.
+runner = "espflash flash --monitor --chip esp32c3"
+rustflags = [
+  "-C", "force-frame-pointers",
+  "-C", "link-arg=-Tlinkall.x",
+]
+
+[build]
+target = "riscv32imc-unknown-none-elf"
+
+[env]
+# Set these before building (or put them in your shell profile):
+#   export FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="..." FFA_HUB_IP="192.168.1.10" FFA_TRANSPORT="auto"
+# They get compiled into the firmware. See src/config.rs.
+ESP_LOG = "info"

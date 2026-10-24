@@ -1,6 +1,31 @@
 [workspace]
 members = [
-    "data-node",
-    "hub-node"
+    "crypto-sharecrate",
+    "uplink",
+    "pc-daemon",
+    "hub-node",
+    "node-sim",
 ]
+# data-node is ESP32-C3 firmware (riscv32imc-unknown-none-elf, no_std). It has
+# its own workspace and target config, so it is built from inside data-node/.
+exclude = ["data-node"]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+crypto-sharecrate = { path = "crypto-sharecrate", features = ["std"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+rand = "0.8"
+hex = "0.4"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+directories = "5"

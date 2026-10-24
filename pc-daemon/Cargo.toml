@@ -1,0 +1,24 @@
+[package]
+name = "pc-daemon"
+version.workspace = true
+edition.workspace = true
+description = "Runs on the user's PC: stores all history in SQLite, runs automation rules, serves the REST API the Electron app uses"
+
+[dependencies]
+crypto-sharecrate.workspace = true
+uplink = { path = "../uplink" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rusqlite.workspace = true
+hex.workspace = true
+clap.workspace = true
+directories.workspace = true
+axum = "0.8"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

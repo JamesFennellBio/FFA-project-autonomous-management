@@ -1,6 +1,39 @@
 [package]
 name = "hub-node"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+description = "Raspberry Pi hub: talks to ESP32 nodes over LoRa + Wi-Fi UDP, buffers 30 days, forwards to the PC daemon"
+
+[features]
+default = []
+# SX1262 LoRa on the Pi's SPI header. Turn on for real hardware:
+#   cross build --release --target aarch64-unknown-linux-gnu -p hub-node --features lora
+lora = ["dep:rppal", "dep:lora-phy", "dep:embedded-hal", "dep:embedded-hal-async", "dep:embedded-hal-bus"]
 
 [dependencies]
+crypto-sharecrate.workspace = true
+uplink = { path = "../uplink" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rusqlite = { workspace = true, features = ["backup"] }
+hex.workspace = true
+clap.workspace = true
+toml.workspace = true
+# CRYPTO-REVIEW: seed phrase (BIP39) and key derivation for the hub identity.
+bip39 = "2"
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+
+rppal = { version = "0.19", features = ["hal"], optional = true }
+lora-phy = { version = "3", optional = true }
+embedded-hal = { version = "1", optional = true }
+embedded-hal-async = { version = "1", optional = true }
+embedded-hal-bus = { version = "0.3", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,17 @@
+[package]
+name = "node-sim"
+version.workspace = true
+edition.workspace = true
+description = "Desktop stand-in for an ESP32 data node (same protocol code, fake sensors, Wi-Fi UDP)"
+
+[dependencies]
+crypto-sharecrate.workspace = true
+uplink = { path = "../uplink" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hex.workspace = true
+clap.workspace = true

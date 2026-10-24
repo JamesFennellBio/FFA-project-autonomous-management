@@ -2,5 +2,53 @@
 name = "data-node"
 version = "0.1.0"
 edition = "2024"
+description = "ESP32-C3 data node firmware (no_std): sensors + outputs over Wi-Fi UDP and SX1262 LoRa"
+
+[workspace]
+
+[[bin]]
+name = "data-node"
+path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
+crypto-sharecrate = { path = "../crypto-sharecrate" }
+esp-hal = { version = "1.2", features = ["esp32c3", "unstable"] }
+esp-rtos = { version = "0.4", features = ["esp32c3", "embassy", "esp-radio", "esp-alloc"] }
+esp-radio = { version = "1.0.0-beta.1", features = ["esp32c3", "wifi", "esp-alloc", "unstable"] }
+esp-bootloader-esp-idf = { version = "0.6", features = ["esp32c3"] }
+esp-storage = { version = "0.10", features = ["esp32c3"] }
+esp-alloc = "0.11"
+esp-println = { version = "0.18", features = ["esp32c3", "log-04"] }
+esp-backtrace = { version = "*", features = ["esp32c3", "panic-handler", "println"] }
+log = "0.4"
+embassy-executor = { version = "0.10", features = [] }
+embassy-time = "0.5"
+embassy-net = { version = "0.9", features = ["udp", "dhcpv4", "medium-ethernet", "proto-ipv4"] }
+embassy-futures = "0.1"
+embedded-storage = "0.3"
+static_cell = "2"
+lora-phy = { version = "3", optional = true }
+embedded-hal-bus = { version = "0.3", features = ["async"], optional = true }
+embedded-hal = "1"
+embedded-hal-async = "1"
+sha2 = { version = "0.10", default-features = false }
+critical-section = "1"
+nb = "1"
+heapless = "0.8"
+
+[features]
+default = []
+# SX1262 LoRa radio (turn on once the modules arrive): cargo run --release --features lora
+lora = ["dep:lora-phy", "dep:embedded-hal-bus"]
+
+[profile.dev]
+# The Wi-Fi blobs and the crypto are too slow (and Wi-Fi may not connect) at opt-level 0.
+opt-level = "s"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = 2

@@ -1,0 +1,41 @@
+{
+  "name": "ffa-farm-lab",
+  "productName": "FFA Farm & Lab",
+  "version": "0.1.0",
+  "description": "Desktop app for the FFA autonomous farm and lab management system",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron \"vite\" \"npm:dev:electron\"",
+    "dev:electron": "tsc -p tsconfig.electron.json && wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "tsc -p tsconfig.electron.json && tsc --noEmit -p tsconfig.json && vite build",
+    "start": "electron .",
+    "lint": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.9.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.3",
+    "concurrently": "9.1.0",
+    "cross-env": "7.0.3",
+    "electron": "33.2.0",
+    "electron-builder": "25.1.8",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "wait-on": "8.0.1"
+  },
+  "build": {
+    "appId": "org.ffa.farmlab",
+    "files": ["dist/**", "dist-electron/**"],
+    "linux": { "target": ["AppImage"] },
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"] }
+  }
+}

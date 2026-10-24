@@ -1,0 +1,22 @@
+[package]
+name = "crypto-sharecrate"
+version.workspace = true
+edition.workspace = true
+description = "Shared no_std protocol + crypto for the FFA farm/lab system (nodes, hub, PC daemon)"
+
+[lib]
+name = "crypto_sharecrate"
+
+[features]
+default = []
+std = []
+
+# Everything here must stay no_std + alloc-free so the ESP32-C3 firmware can use it.
+# CRYPTO-REVIEW: these are the only crypto dependencies in the whole system.
+[dependencies]
+chacha20poly1305 = { version = "0.10", default-features = false }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"] }
+hkdf = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+zeroize = { version = "1", default-features = false, features = ["derive"] }

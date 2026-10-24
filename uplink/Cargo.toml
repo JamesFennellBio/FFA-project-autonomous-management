@@ -1,0 +1,14 @@
+[package]
+name = "uplink"
+version.workspace = true
+edition.workspace = true
+description = "Hub <-> PC daemon messages and the encrypted TCP framing between them"
+
+[dependencies]
+crypto-sharecrate.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+rand_core = { version = "0.6", features = ["getrandom"] }

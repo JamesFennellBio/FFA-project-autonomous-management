@@ -1,1 +1,65 @@
+name: CI + security scan
 
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, to catch new RustSec advisories
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p hub-node --features lora -- -D warnings
+      - run: cargo test --workspace
+      - name: crypto review index is up to date
+        run: ./scripts/crypto-review.sh --check
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imc-unknown-none-elf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: data-node
+      - name: build (Wi-Fi)
+        working-directory: data-node
+        env: { FFA_WIFI_SSID: ci, FFA_WIFI_PASSWORD: ci-password }
+        run: cargo build --release
+      - name: build (Wi-Fi + LoRa)
+        working-directory: data-node
+        env: { FFA_WIFI_SSID: ci, FFA_TRANSPORT: auto }
+        run: cargo build --release --features lora
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build
+      - run: npm audit --audit-level=high --omit=dev
