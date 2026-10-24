@@ -313,3 +313,34 @@ fn forged_pair_request_rejected() {
     req[1] ^= 1; // swap in a different public key
     assert!(pairing::parse_pair_request(&req).is_err());
 }
+
+#[test]
+fn forged_hello_ack_does_not_cancel_handshake() {
+    let (mut node, mut hub) = paired();
+    let hello = node.start_handshake(&rand48(1), 10).unwrap();
+    // attacker answers first with an ACK signed by their own key for our node id
+    let attacker = Identity::from_seed(&[0x99; 32]);
+    let mut fake = PeerSessions::new();
+    let forged = fake
+        .on_hello(&hello, &hub.node_pub, &attacker, &rand48(5), 1, 10)
+        .unwrap();
+    assert_eq!(node.handle_frame(&forged, 11), Err(Error::BadSignature));
+    // and an ACK for a different node id is ignored without resetting anything
+    let mut other = forged;
+    other[1] ^= 0xFF;
+    assert_eq!(node.handle_frame(&other, 12), Ok(NodeEvent::Ignored));
+    assert!(node.handshake_pending(14));
+    assert!(
+        !node.handshake_pending(15),
+        "timeout still counts from the HELLO at t=10"
+    );
+    // the genuine ACK still completes the handshake
+    let ack = hub
+        .peer
+        .on_hello(&hello, &hub.node_pub, &hub.id, &rand48(2), 7, 10)
+        .unwrap();
+    assert!(matches!(
+        node.handle_frame(&ack, 13),
+        Ok(NodeEvent::SessionUp { .. })
+    ));
+}

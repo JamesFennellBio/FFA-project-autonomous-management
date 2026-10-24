@@ -49,7 +49,13 @@ pub struct AppState {
     /// CRYPTO-REVIEW: hub key a person approved in the app; it's pinned once
     /// that hub asks again.
     pub approved_hub: Mutex<Option<[u8; 32]>>,
+    /// (second, signature checks done in that second) on the hub port.
+    sig_budget: Mutex<(u64, u32)>,
 }
+
+/// Max Ed25519 verifications per second on the hub port, across all
+/// connections (FYEO scan 2: unbounded verifies per connection).
+pub const SIG_CHECKS_PER_SEC: u32 = 20;
 
 impl AppState {
     pub fn new(conn: Connection, seed: &[u8; 32], token: String) -> Self {
@@ -60,7 +66,21 @@ impl AppState {
             hub: Mutex::new(HubLive::default()),
             pending: Mutex::new(HashMap::new()),
             approved_hub: Mutex::new(None),
+            sig_budget: Mutex::new((0, 0)),
         }
+    }
+
+    /// Takes one signature check from this second's budget.
+    pub fn take_sig_budget(&self, now_secs: u64) -> bool {
+        let mut b = self.sig_budget.lock().unwrap();
+        if b.0 != now_secs {
+            *b = (now_secs, 0);
+        }
+        if b.1 >= SIG_CHECKS_PER_SEC {
+            return false;
+        }
+        b.1 += 1;
+        true
     }
 
     /// Queues a message for the hub. Returns false if the hub isn't connected.

@@ -179,8 +179,10 @@ impl Initiator {
 
     /// Initiator step 2: check the HELLO-ACK against the pinned responder key
     /// and derive the session.
+    /// Takes `&self` so a forged or broken HELLO-ACK leaves the handshake
+    /// pending: the caller only drops it once a reply verifies.
     pub fn finish(
-        self,
+        &self,
         ack: &[u8],
         responder_pub: &[u8; PUBLIC_KEY_LEN],
         now: u64,
