@@ -181,8 +181,6 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `crypto-sharecrate/src/node.rs` | 107 | true when there's no session, or the current one hit |
 | `crypto-sharecrate/src/node.rs` | 173 | the old session (and its keys) is dropped here. |
 | `crypto-sharecrate/tests/protocol.rs` | 2 | these tests are the spec for the security properties. |
-| `database/schema.sql` | 10 | pinned Ed25519 key (hex) |
-| `database/schema.sql` | 20 | pinned Ed25519 key (hex) |
 | `data-node/src/main.rs` | 229 | new ECDH session every 10 messages / 1 hour ---- |
 | `data-node/src/main.rs` | 231 | ephemeral key + nonce |
 | `data-node/src/main.rs` | 325 | true-random 256-bit seed from the RNG with ADC noise as |
@@ -190,6 +188,8 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `data-node/src/rng.rs` | 1 | random numbers for keys and handshakes on the ESP32-C3. |
 | `data-node/src/storage.rs` | 10 | the Ed25519 seed is stored *unencrypted* in flash. Anyone |
 | `data-node/src/storage.rs` | 25 | long-term Ed25519 secret seed. |
+| `database/schema.sql` | 10 | pinned Ed25519 key (hex) |
+| `database/schema.sql` | 20 | pinned Ed25519 key (hex) |
 | `hub-node/Cargo.toml` | 26 | seed phrase (BIP39) and key derivation for the hub identity. |
 | `hub-node/src/hub.rs` | 41 | pinned Ed25519 key from pairing. |
 | `hub-node/src/hub.rs` | 59 | keys a person approved in the app, waiting for the node's next PAIR_REQUEST. |

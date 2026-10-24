@@ -5,6 +5,8 @@
 #   ./scripts/crypto-review.sh          # update the doc
 #   ./scripts/crypto-review.sh --check  # CI: fail if the doc is out of date
 set -euo pipefail
+# Same sort order everywhere (CI and your PC), or --check fails on locale differences.
+export LC_ALL=C
 cd "$(dirname "$0")/.."
 
 DOC=docs/CRYPTO_REVIEW.md
