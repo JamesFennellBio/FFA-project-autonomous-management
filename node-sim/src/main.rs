@@ -35,6 +35,10 @@ struct Args {
     /// Act like the pairing button is held.
     #[arg(long)]
     pair: bool,
+    /// Only pair with this hub (64 hex chars from `hub-node fingerprint`),
+    /// like FFA_HUB_KEY in the firmware.
+    #[arg(long)]
+    hub_key: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -120,6 +124,10 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let (seed, pairing) = load_state(&args.state)?;
     let mut core = NodeCore::new(&seed, pairing);
+    if let Some(k) = &args.hub_key {
+        // CRYPTO-REVIEW: pinned hub key, same as FFA_HUB_KEY on the ESP32.
+        core = core.with_expected_peer(uplink::key_from_hex(k)?);
+    }
     info!(
         "node fingerprint {}",
         String::from_utf8_lossy(&core.fingerprint())
@@ -193,6 +201,9 @@ async fn main() -> Result<()> {
                         }
                         let what = match channel { 2 => "SIREN", 3 => "SOLENOID", _ => "output" };
                         info!(">>> {what} (ch {channel}) set to {}", if value != 0 { "ON" } else { "OFF" });
+                        if let Ok(f) = core.seal(&Packet::Ack { channel, value }, mono_now()) {
+                            sock.send(&f).await?;
+                        }
                     }
                     Ok(_) => {}
                     Err(e) => warn!("bad frame from hub: {e}"),

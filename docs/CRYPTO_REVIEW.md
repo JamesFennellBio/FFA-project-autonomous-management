@@ -47,6 +47,12 @@ except the protocol framing, the DRBG and the HKDF labels.
 3. You compare the fingerprint with the node's serial log and click Approve.
 4. On the node's next request, the hub sends `PAIR_ACCEPT = 0x09 | node_id | pubH | Sig_H("FFA-PAIR-ACC-v1" ‖ pubA ‖ 0x09 ‖ node_id ‖ pubH)`.
    Because the signature covers pubA, an accept made for another device fails.
+5. **Pinned peer keys (scan findings 03/17/12).** Nodes built with
+   `FFA_HUB_KEY=<hub public key>` refuse any PAIR_ACCEPT not signed by that
+   key (`NodeCore::with_expected_peer`, error `WrongPeer`), which closes the
+   trust-on-first-use race. The hub *requires* `pc_public_key` in hub.toml
+   and only pairs with that PC. A saved pairing for a different key is
+   dropped, and the device pairs again with the pinned peer.
 
 ## Session handshake (`crypto/handshake.rs`)
 
@@ -95,37 +101,58 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 
 ## Known weaknesses / things to look at
 
-1. **Node pairing is trust-on-first-use on the node side.** During the 60 s
-   pairing window, whoever answers first with a valid PAIR_ACCEPT gets pinned.
-   The hub side needs a person to approve. To narrow the gap, compare the hub
-   fingerprint the node logs on serial with the one in the app.
+1. **Node pairing without `FFA_HUB_KEY` is still trust-on-first-use.** If you
+   build a node without the hub key, whoever answers first during the 60 s
+   pairing window gets pinned. With the key set, this is closed. The hub side
+   always needs a person to approve.
 2. **Keys at rest aren't encrypted.** The node seed sits in plain flash at
    0x9000 (anyone holding the board can read it). The hub's `identity.key` and
-   the PC's `identity.key` / `api-token` are 0600 files. Fixing the node needs
-   ESP32 flash encryption plus secure boot (an eFuse change you can't undo).
+   the PC's `identity.key` / `api-token` are 0600 files. `hub-node init` now
+   says plainly that the derived key *is* saved. Fixing the node needs ESP32
+   flash encryption plus secure boot (an eFuse change you can't undo).
 3. **Custom DRBG on the node** (`data-node/src/rng.rs`). It's a simple
    SHA-256 construction, not NIST HMAC-DRBG. Its seed comes from the TRNG
-   (ADC noise) at boot. Check whether you'd rather use `rand_chacha`
-   seeded from the TRNG, or HMAC-DRBG.
+   (ADC noise) at boot.
 4. **Metadata is in the clear:** frame type, node id, epoch and counter (all
-   authenticated). Someone listening can tell a Data frame from an Alert and
-   see how often each node reports.
-5. **Denial of service isn't covered.** Anyone can jam the radio, and anyone
-   can make the hub run an Ed25519 verify per HELLO. Pairing-request spam is
-   rate-limited per key and capped at 32 pending, but fresh keys get past the
-   per-key limit.
-6. **The hub→PC link is this custom protocol, not TLS.** It's the same
-   construction as the radio link, so a mistake in the protocol would affect
-   both links.
-7. **Timestamps come from the hub's clock** (the Pi 3B has no RTC; it
-   uses NTP or fake-hwclock). They aren't authenticated by the node.
-8. **The Wi-Fi password is compiled into the node firmware** (from `FFA_WIFI_*`
-   env vars at build time). Someone who extracts the flash gets the PSK.
-9. **Epoch ids are random 32-bit values** that the responder picks. They only
-   label a session (the keys are fresh every time), so a collision only matters
-   if it matches the *current* epoch, and that case is handled.
-10. **There's no revocation broadcast.** "Unpair" in the app removes the key on the hub
-    and PC, but the node keeps the hub's key until someone holds its button for 10 s.
+   authenticated).
+5. **Radio denial of service can't be prevented** (jamming). What is limited
+   now: at most 50 Ed25519 checks per second on the hub; per node, at most 5
+   HELLOs per 10 s; at most 1 forwarded pairing request per second; pairing
+   requests are never stored in the hub DB; and the rate-limit tables are
+   capped. A replayed HELLO is rejected by nonce, and a replay can't push out
+   the genuine pending session (4 slots). An attacker with many recorded
+   HELLOs replaying fast can still delay new sessions, which is no worse than
+   jamming.
+6. **The hub→PC link is this custom protocol, not TLS.** The PC port allows
+   4 connections, each with a 10 s first-frame timeout and a 90 s idle timeout.
+7. **Timestamps come from the hub's clock** (no RTC on the Pi 3B). A clock
+   that steps backwards after a power cut can make the PC skip a few readings
+   as duplicates (scan finding 19).
+8. **The Wi-Fi password is compiled into the node firmware.**
+9. **There's no node key rotation.** Rotating means a factory reset (hold
+   BOOT 10 s) plus pairing again.
+10. **There's no revocation broadcast to the node.** Unpairing removes the key on the hub and
+    PC (and now requires the hub to be online, so they can't get out of
+    sync), but the node keeps the hub's key until someone holds its button for 10 s.
+
+### Fixed after the Oct 24 2026 security scan
+
+| Finding | Fix |
+|---|---|
+| 01 failsafe only re-armed by a new session | any authenticated frame re-arms it (`data-node/src/main.rs::contact`) |
+| 02/08 pairing-request spam filled hub DB/RAM | live-only, never stored; global 1/s; key table capped at 1024 |
+| 03/17 node TOFU race | optional `FFA_HUB_KEY` pin |
+| 04 unlimited TCP connections | 4-connection cap, first-frame and idle timeouts |
+| 09 HELLO/PAIR CPU flood | per-node and global signature-check budgets |
+| 10/18 "delivered" without proof | node sends an encrypted `Ack`; status queued→sent→acked |
+| 11/15 init said nothing is stored | output and docs corrected |
+| 12 hub re-pairs with any PC | `pc_public_key` required in hub.toml |
+| 14 any TCP disconnect cleared hub link | only the registered connection can clear it |
+| 16/22/25/31 node id reuse / collisions | ids never reused; rules deleted with the node; hub refuses to re-point an id |
+| 24 deleted active rule left output on | off command sent on delete |
+| 27 `restore` overwrote identity | needs `--force` |
+| 29 replayed HELLO blocked new sessions | nonce cache + 4 pending slots |
+| 30 silent command drop | `CommandDropped` → alert + status `dropped` |
 
 ## Tests that pin down these properties
 
@@ -133,8 +160,11 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 `rekey_after_ten_messages`, `rekey_after_one_hour`, `hub_rejects_expired_session`,
 `tampered_ciphertext_header_and_tag_rejected`, `replay_rejected`,
 `hello_signed_by_wrong_key_rejected`, `ack_from_wrong_hub_rejected`,
-`replayed_hello_does_not_break_live_session`, `pair_accept_for_other_device_rejected`,
-`forged_pair_request_rejected`.
+`replayed_hello_rejected_and_live_session_survives`, `old_replay_cannot_evict_genuine_pending_session`,
+`pinned_hub_key_rejects_other_hubs`, `saved_pairing_with_wrong_key_is_dropped_when_pinned`,
+`pair_accept_for_other_device_rejected`, `forged_pair_request_rejected`.
+`cargo test -p hub-node` covers the hub-side limits (`hello_flood_is_rate_limited`,
+`pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`).
 
 ## Every CRYPTO-REVIEW location
 
@@ -162,7 +192,8 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `crypto-sharecrate/src/crypto/pairing.rs` | 1 | pairing (exchanging long-term public keys once). |
 | `crypto-sharecrate/src/crypto/pairing.rs` | 90 | the signature includes own_pub, so an accept that was |
 | `crypto-sharecrate/src/crypto/responder.rs` | 1 | responder-side session bookkeeping for one peer (the hub |
-| `crypto-sharecrate/src/crypto/responder.rs` | 75 | key confirmation passed, switch sessions and |
+| `crypto-sharecrate/src/crypto/responder.rs` | 86 | a HELLO nonce is 16 random bytes from the node, so a |
+| `crypto-sharecrate/src/crypto/responder.rs` | 133 | key confirmation passed. This session becomes |
 | `crypto-sharecrate/src/crypto/session.rs` | 1 | an established session. Seals and opens frames with |
 | `crypto-sharecrate/src/crypto/session.rs` | 13 | rekey after this many frames in either direction. |
 | `crypto-sharecrate/src/crypto/session.rs` | 16 | rekey after this many seconds, even if few frames were sent. |
@@ -177,47 +208,56 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `crypto-sharecrate/src/crypto/session.rs` | 226 | don't leave unauthenticated plaintext in the caller's buffer. |
 | `crypto-sharecrate/src/lib.rs` | 13 | ` (see docs/CRYPTO_REVIEW.md). |
 | `crypto-sharecrate/src/node.rs` | 27 | the pinned responder (hub/PC) Ed25519 key. |
-| `crypto-sharecrate/src/node.rs` | 54 | `seed` is this device's long-term Ed25519 secret, loaded |
-| `crypto-sharecrate/src/node.rs` | 107 | true when there's no session, or the current one hit |
-| `crypto-sharecrate/src/node.rs` | 173 | the old session (and its keys) is dropped here. |
+| `crypto-sharecrate/src/node.rs` | 47 | if set, pairing only accepts this responder key. |
+| `crypto-sharecrate/src/node.rs` | 56 | `seed` is this device's long-term Ed25519 secret, loaded |
+| `crypto-sharecrate/src/node.rs` | 69 | pin the responder's public key ahead of time (built into |
+| `crypto-sharecrate/src/node.rs` | 127 | true when there's no session, or the current one hit |
+| `crypto-sharecrate/src/node.rs` | 179 | with a pinned key, an accept from anyone else |
+| `crypto-sharecrate/src/node.rs` | 198 | the old session (and its keys) is dropped here. |
 | `crypto-sharecrate/tests/protocol.rs` | 2 | these tests are the spec for the security properties. |
-| `data-node/src/main.rs` | 229 | new ECDH session every 10 messages / 1 hour ---- |
-| `data-node/src/main.rs` | 231 | ephemeral key + nonce |
-| `data-node/src/main.rs` | 325 | true-random 256-bit seed from the RNG with ADC noise as |
-| `data-node/src/main.rs` | 341 | first boot, so make this node's long-term identity. |
+| `data-node/src/config.rs` | 38 | the hub's 64-hex-char public key (`hub-node fingerprint`). |
+| `data-node/src/main.rs` | 259 | new ECDH session every 10 messages / 1 hour ---- |
+| `data-node/src/main.rs` | 261 | ephemeral key + nonce |
+| `data-node/src/main.rs` | 355 | true-random 256-bit seed from the RNG with ADC noise as |
+| `data-node/src/main.rs` | 371 | first boot, so make this node's long-term identity. |
+| `data-node/src/main.rs` | 382 | with FFA_HUB_KEY set at build time, the node only pairs |
 | `data-node/src/rng.rs` | 1 | random numbers for keys and handshakes on the ESP32-C3. |
 | `data-node/src/storage.rs` | 10 | the Ed25519 seed is stored *unencrypted* in flash. Anyone |
 | `data-node/src/storage.rs` | 25 | long-term Ed25519 secret seed. |
 | `database/schema.sql` | 10 | pinned Ed25519 key (hex) |
 | `database/schema.sql` | 20 | pinned Ed25519 key (hex) |
 | `hub-node/Cargo.toml` | 26 | seed phrase (BIP39) and key derivation for the hub identity. |
-| `hub-node/src/hub.rs` | 41 | pinned Ed25519 key from pairing. |
-| `hub-node/src/hub.rs` | 59 | keys a person approved in the app, waiting for the node's next PAIR_REQUEST. |
-| `hub-node/src/hub.rs` | 71 | randomness for one handshake: 48 bytes (ephemeral key + |
-| `hub-node/src/hub.rs` | 174 | verifies the node's signature with its pinned key; |
-| `hub-node/src/hub.rs` | 215 | hub side of node pairing; see crypto::pairing for the trust model. |
-| `hub-node/src/main.rs` | 71 | the phrase is printed once and never saved. |
+| `hub-node/src/config.rs` | 18 | the PC daemon's public key (64 hex chars), shown in the |
+| `hub-node/src/hub.rs` | 51 | pinned Ed25519 key from pairing. |
+| `hub-node/src/hub.rs` | 71 | keys a person approved in the app, waiting for the node's next PAIR_REQUEST. |
+| `hub-node/src/hub.rs` | 91 | randomness for one handshake: 48 bytes (ephemeral key + |
+| `hub-node/src/hub.rs` | 230 | verifies the node's signature with its pinned key; |
+| `hub-node/src/hub.rs` | 271 | hub side of node pairing; see crypto::pairing for the trust model. |
+| `hub-node/src/hub.rs` | 332 | never silently re-point a node id at a new |
+| `hub-node/src/main.rs` | 75 | the phrase is printed once and never saved. The |
 | `hub-node/src/pc_link.rs` | 29 | pinned PC daemon Ed25519 key. |
-| `hub-node/src/pc_link.rs` | 74 | randomness for a handshake, from the OS RNG. |
+| `hub-node/src/pc_link.rs` | 53 | `pc_key` is the PC daemon's public key from hub.toml. The |
+| `hub-node/src/pc_link.rs` | 82 | randomness for a handshake, from the OS RNG. |
 | `hub-node/src/seed.rs` | 1 | hub identity from a 24-word BIP39 seed phrase. |
-| `node-sim/src/main.rs` | 42 | the node's Ed25519 seed (on the ESP this lives in flash). |
-| `node-sim/src/main.rs` | 80 | new identity from the OS RNG, like the ESP's first boot. |
-| `node-sim/src/main.rs` | 154 | handshake randomness |
-| `pc-daemon/src/api/mod.rs` | 104 | the human approval step of pairing. A device's key is only |
+| `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
+| `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
+| `node-sim/src/main.rs` | 128 | pinned hub key, same as FFA_HUB_KEY on the ESP32. |
+| `node-sim/src/main.rs` | 162 | handshake randomness |
+| `pc-daemon/src/api/mod.rs` | 106 | the human approval step of pairing. A device's key is only |
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
-| `pc-daemon/src/db.rs` | 37 | the pinned hub key, if a hub is paired. |
-| `pc-daemon/src/hub_link.rs` | 47 | 48 random bytes for one handshake (ephemeral key + nonce) |
-| `pc-daemon/src/hub_link.rs` | 84 | verifies the hub's signature with the pinned key. |
-| `pc-daemon/src/hub_link.rs` | 148 | hub pairing. A hub is only pinned after a person approved |
+| `pc-daemon/src/db.rs` | 47 | the pinned hub key, if a hub is paired. |
+| `pc-daemon/src/hub_link.rs` | 72 | 48 random bytes for one handshake (ephemeral key + nonce) |
+| `pc-daemon/src/hub_link.rs` | 117 | verifies the hub's signature with the pinned key. |
+| `pc-daemon/src/hub_link.rs` | 183 | hub pairing. A hub is only pinned after a person approved |
 | `pc-daemon/src/main.rs` | 62 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
-| `pc-daemon/src/state.rs` | 42 | the PC daemon's long-term signing key. |
-| `pc-daemon/src/state.rs` | 47 | hub key a person approved in the app; it's pinned once |
-| `uplink/src/lib.rs` | 139 | seal a JSON value as an Uplink frame under the session. |
-| `uplink/src/lib.rs` | 150 | open an Uplink frame. `open` is either `Session::open` or |
-| `uplink/src/lib.rs` | 197 | used for the PC daemon's identity seed. The OS RNG fills |
-| `uplink/src/lib.rs` | 230 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
+| `pc-daemon/src/state.rs` | 44 | the PC daemon's long-term signing key. |
+| `pc-daemon/src/state.rs` | 49 | hub key a person approved in the app; it's pinned once |
+| `uplink/src/lib.rs` | 162 | seal a JSON value as an Uplink frame under the session. |
+| `uplink/src/lib.rs` | 173 | open an Uplink frame. `open` is either `Session::open` or |
+| `uplink/src/lib.rs` | 220 | used for the PC daemon's identity seed. The OS RNG fills |
+| `uplink/src/lib.rs` | 253 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
-_75 tagged locations._
+_85 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

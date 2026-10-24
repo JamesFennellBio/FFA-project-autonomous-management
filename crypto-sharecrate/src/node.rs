@@ -44,6 +44,8 @@ pub enum NodeEvent {
 
 pub struct NodeCore {
     identity: Identity,
+    /// CRYPTO-REVIEW: if set, pairing only accepts this responder key.
+    expected_peer: Option<[u8; PUBLIC_KEY_LEN]>,
     pairing: Option<Pairing>,
     session: Option<Session>,
     pending: Option<(Initiator, u64)>,
@@ -56,11 +58,29 @@ impl NodeCore {
     pub fn new(seed: &[u8; SEED_LEN], pairing: Option<Pairing>) -> Self {
         Self {
             identity: Identity::from_seed(seed),
+            expected_peer: None,
             pairing,
             session: None,
             pending: None,
             sessions_started: 0,
         }
+    }
+
+    /// CRYPTO-REVIEW: pin the responder's public key ahead of time (built into
+    /// the node firmware, or set in hub.toml for the PC). Pairing then accepts
+    /// only a PAIR_ACCEPT signed by this key, which closes the trust-on-first-use
+    /// race. A saved pairing for a different key is dropped, so the device
+    /// pairs again with the right peer.
+    pub fn with_expected_peer(mut self, key: [u8; PUBLIC_KEY_LEN]) -> Self {
+        self.expected_peer = Some(key);
+        if self.pairing.is_some_and(|p| p.peer_pub != key) {
+            self.pairing = None;
+        }
+        self
+    }
+
+    pub fn expected_peer(&self) -> Option<[u8; PUBLIC_KEY_LEN]> {
+        self.expected_peer
     }
 
     pub fn public_key(&self) -> [u8; PUBLIC_KEY_LEN] {
@@ -156,6 +176,11 @@ impl NodeCore {
                 }
                 let (node_id, peer_pub) =
                     pairing::parse_pair_accept(frame, &self.identity.public_key())?;
+                // CRYPTO-REVIEW: with a pinned key, an accept from anyone else
+                // is refused even though its signature is valid.
+                if self.expected_peer.is_some_and(|k| k != peer_pub) {
+                    return Err(Error::WrongPeer);
+                }
                 let p = Pairing { node_id, peer_pub };
                 self.pairing = Some(p);
                 Ok(NodeEvent::Paired(p))

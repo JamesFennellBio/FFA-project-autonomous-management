@@ -49,19 +49,27 @@ fn save_pairing(path: &PathBuf, p: &Pairing) -> Result<()> {
 }
 
 /// Keeps reconnecting to the PC for as long as the hub runs.
+///
+/// CRYPTO-REVIEW: `pc_key` is the PC daemon's public key from hub.toml. The
+/// hub only pairs with (and only trusts) that key, so losing pc_pairing.json
+/// can't make it trust whoever answers first on pc_addr (finding 12).
 pub async fn run(
     seed: [u8; 32],
     pc_addr: String,
+    pc_key: [u8; 32],
     pairing_path: PathBuf,
     store: Arc<Mutex<Store>>,
     to_hub: mpsc::UnboundedSender<PcMsg>,
+    mut live: mpsc::Receiver<HubMsg>,
 ) {
     loop {
-        let core = NodeCore::new(&seed, load_pairing(&pairing_path));
+        let core = NodeCore::new(&seed, load_pairing(&pairing_path)).with_expected_peer(pc_key);
         match TcpStream::connect(&pc_addr).await {
             Ok(stream) => {
                 info!("connected to PC daemon at {pc_addr}");
-                if let Err(e) = session(core, stream, &pairing_path, &store, &to_hub).await {
+                if let Err(e) =
+                    session(core, stream, &pairing_path, &store, &to_hub, &mut live).await
+                {
                     warn!("PC link dropped: {e:#}");
                 }
             }
@@ -84,6 +92,7 @@ async fn session(
     pairing_path: &PathBuf,
     store: &Arc<Mutex<Store>>,
     to_hub: &mpsc::UnboundedSender<PcMsg>,
+    live: &mut mpsc::Receiver<HubMsg>,
 ) -> Result<()> {
     stream.set_nodelay(true)?;
     let (mut rd, mut wr) = stream.into_split();
@@ -91,7 +100,8 @@ async fn session(
     // Highest row id sent on this connection (not acked yet). On reconnect we
     // start from 0 and resend anything still unacked; the PC skips duplicates.
     let mut sent_upto: i64 = 0;
-    let mut last_heartbeat = 0u64;
+    // None = send one as soon as the session is up, so the PC sees the hub at once.
+    let mut last_heartbeat: Option<u64> = None;
 
     loop {
         tokio::select! {
@@ -115,11 +125,18 @@ async fn session(
                     continue;
                 }
                 let mut msgs = store.lock().unwrap().unsent(sent_upto, MAX_BATCH)?;
-                if now.saturating_sub(last_heartbeat) >= HEARTBEAT_SECS {
-                    last_heartbeat = now;
+                if last_heartbeat.is_none_or(|t| now.saturating_sub(t) >= HEARTBEAT_SECS) {
+                    last_heartbeat = Some(now);
                     let backlog = store.lock().unwrap().backlog()?;
                     // Heartbeats aren't stored, so they get id 0 (the PC never dedupes 0).
                     msgs.push((0, HubMsg::Heartbeat { ts: unix_now(), backlog }));
+                }
+                // Live-only messages (pairing requests): id 0, never stored.
+                while msgs.len() < MAX_BATCH + 10 {
+                    match live.try_recv() {
+                        Ok(m) => msgs.push((0, m)),
+                        Err(_) => break,
+                    }
                 }
                 if msgs.is_empty() {
                     continue;
@@ -135,7 +152,13 @@ async fn session(
                 let now = mono_now();
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
                     FrameType::PairAccept | FrameType::HelloAck => {
-                        match core.handle_frame(&frame, now).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        let event = core.handle_frame(&frame, now).map_err(|e| match e {
+                            crypto_sharecrate::Error::WrongPeer => anyhow::anyhow!(
+                                "the PC at pc_addr answered with a key that is not pc_public_key in hub.toml; refusing to pair"
+                            ),
+                            e => anyhow::anyhow!("{e}"),
+                        })?;
+                        match event {
                             NodeEvent::Paired(p) => {
                                 save_pairing(pairing_path, &p)?;
                                 info!(

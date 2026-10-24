@@ -34,8 +34,18 @@ impl Link {
 
 /// Only forward the same node's pairing request to the PC this often.
 const PAIR_FORWARD_EVERY: i64 = 10;
+/// ...and at most one pairing request (from anyone) per second.
+const PAIR_FORWARD_MIN_GAP: i64 = 1;
+/// Cap on the per-key rate-limit table (anyone can make new keys).
+const MAX_PAIR_KEYS_TRACKED: usize = 1024;
 /// Max commands queued per node while it's out of reach.
 const MAX_QUEUED_COMMANDS: usize = 16;
+/// Per node: at most this many HELLOs per HELLO_WINDOW_SECS.
+const HELLOS_PER_WINDOW: usize = 5;
+const HELLO_WINDOW_SECS: u64 = 10;
+/// Whole hub: at most this many Ed25519 verifications (HELLO + PAIR_REQUEST)
+/// per second, so a flood can't eat the Pi's CPU.
+const SIG_CHECKS_PER_SEC: u32 = 50;
 
 struct NodeEntry {
     /// CRYPTO-REVIEW: pinned Ed25519 key from pairing.
@@ -43,6 +53,8 @@ struct NodeEntry {
     sessions: PeerSessions,
     link: Option<Link>,
     commands: VecDeque<(u8, i32)>,
+    /// Monotonic times of recent HELLOs (rate limit).
+    recent_hellos: VecDeque<u64>,
 }
 
 /// Saved in `paired.json` as soon as anything changes. Pairings are too
@@ -59,13 +71,21 @@ pub struct Hub {
     /// CRYPTO-REVIEW: keys a person approved in the app, waiting for the node's next PAIR_REQUEST.
     approved: HashMap<[u8; 32], u16>,
     last_pair_forward: HashMap<[u8; 32], i64>,
+    last_any_pair_forward: i64,
+    /// (second, signature checks done in that second)
+    sig_budget: (u64, u32),
     paired_path: Option<PathBuf>,
 }
 
 #[derive(Default, Debug)]
 pub struct Output {
     pub frames: Vec<(Link, Vec<u8>)>,
+    /// Stored in the hub DB and forwarded to the PC (resent until acked).
     pub to_pc: Vec<HubMsg>,
+    /// Forwarded to the PC only if it's connected right now; never stored.
+    /// Used for pairing requests, which anyone can generate, so they must
+    /// not fill the hub's database (scan findings 02/08).
+    pub live: Vec<HubMsg>,
 }
 
 /// CRYPTO-REVIEW: randomness for one handshake: 48 bytes (ephemeral key +
@@ -85,6 +105,8 @@ impl Hub {
             nodes: HashMap::new(),
             approved: HashMap::new(),
             last_pair_forward: HashMap::new(),
+            last_any_pair_forward: i64::MIN,
+            sig_budget: (0, 0),
             paired_path,
         };
         if let Some(p) = &hub.paired_path
@@ -114,6 +136,7 @@ impl Hub {
                 sessions: PeerSessions::new(),
                 link: None,
                 commands: VecDeque::new(),
+                recent_hellos: VecDeque::new(),
             },
         );
     }
@@ -140,6 +163,18 @@ impl Hub {
         Ok(())
     }
 
+    /// Global limit on signature checks per second (finding 09).
+    fn take_sig_budget(&mut self, mono: u64) -> bool {
+        if self.sig_budget.0 != mono {
+            self.sig_budget = (mono, 0);
+        }
+        if self.sig_budget.1 >= SIG_CHECKS_PER_SEC {
+            return false;
+        }
+        self.sig_budget.1 += 1;
+        true
+    }
+
     /// Handles one frame from a radio. Bad frames are logged and dropped:
     /// anyone can transmit on these bands.
     pub fn on_frame(&mut self, frame: &[u8], link: Link, mono: u64, unix: i64) -> Output {
@@ -161,15 +196,36 @@ impl Hub {
         let ftype = FrameType::from_byte(*frame.first().ok_or_else(|| anyhow::anyhow!("empty"))?)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         match ftype {
-            FrameType::PairRequest => self.on_pair_request(frame, link, unix, out)?,
+            FrameType::PairRequest => {
+                if !self.take_sig_budget(mono) {
+                    anyhow::bail!("signature budget used up; pair request dropped");
+                }
+                self.on_pair_request(frame, link, unix, out)?
+            }
             FrameType::Hello => {
                 let node_id =
                     handshake::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
-                let identity = &self.identity;
+                // Cheap checks first: unknown node, per-node rate, global budget.
                 let node = self
                     .nodes
                     .get_mut(&node_id)
                     .ok_or_else(|| anyhow::anyhow!("HELLO from unknown node {node_id}"))?;
+                while node
+                    .recent_hellos
+                    .front()
+                    .is_some_and(|t| mono.saturating_sub(*t) >= HELLO_WINDOW_SECS)
+                {
+                    node.recent_hellos.pop_front();
+                }
+                if node.recent_hellos.len() >= HELLOS_PER_WINDOW {
+                    anyhow::bail!("too many HELLOs from node {node_id}");
+                }
+                node.recent_hellos.push_back(mono);
+                if !self.take_sig_budget(mono) {
+                    anyhow::bail!("signature budget used up; HELLO dropped");
+                }
+                let identity = &self.identity;
+                let node = self.nodes.get_mut(&node_id).expect("checked above");
                 let (rand, epoch) = hs_random()?;
                 // CRYPTO-REVIEW: verifies the node's signature with its pinned key;
                 // the new session waits as pending until key confirmation.
@@ -238,13 +294,22 @@ impl Hub {
                 .push((link, pairing::pair_accept(&self.identity, &pk, id).to_vec()));
             return Ok(());
         }
+        // Rate limits (findings 02/08): per key, overall, and a cap on how
+        // many keys we track. Requests that don't fit are just dropped; the
+        // node keeps asking every few seconds while its button window is open.
         let due = self
             .last_pair_forward
             .get(&pk)
-            .is_none_or(|last| unix.saturating_sub(*last) >= PAIR_FORWARD_EVERY);
-        if due {
+            .is_none_or(|last| unix.saturating_sub(*last) >= PAIR_FORWARD_EVERY)
+            && unix.saturating_sub(self.last_any_pair_forward) >= PAIR_FORWARD_MIN_GAP;
+        if self.last_pair_forward.len() >= MAX_PAIR_KEYS_TRACKED {
+            self.last_pair_forward
+                .retain(|_, t| unix.saturating_sub(*t) < PAIR_FORWARD_EVERY);
+        }
+        if due && self.last_pair_forward.len() < MAX_PAIR_KEYS_TRACKED {
             self.last_pair_forward.insert(pk, unix);
-            out.to_pc.push(HubMsg::PairRequest {
+            self.last_any_pair_forward = unix;
+            out.live.push(HubMsg::PairRequest {
                 public_key: uplink::key_to_hex(&pk),
                 fingerprint: uplink::fingerprint_hex(&pk),
                 transport: link.transport(),
@@ -264,6 +329,29 @@ impl Hub {
                 node_id,
             } => match uplink::key_from_hex(&public_key) {
                 Ok(pk) => {
+                    // CRYPTO-REVIEW: never silently re-point a node id at a new
+                    // key, or one key at two ids (findings 22/25).
+                    let conflict = match self.nodes.get(&node_id) {
+                        Some(n) if n.public_key != pk => Some(format!(
+                            "node id {node_id} is already paired to another device"
+                        )),
+                        _ => self
+                            .nodes
+                            .iter()
+                            .find(|(id, n)| n.public_key == pk && **id != node_id)
+                            .map(|(id, _)| format!("this device is already paired as node {id}")),
+                    };
+                    if let Some(reason) = conflict {
+                        warn!("refusing approval: {reason}");
+                        out.to_pc.push(HubMsg::ApproveFailed {
+                            public_key,
+                            node_id,
+                            reason,
+                            ts: unix,
+                        });
+                        return out;
+                    }
+                    self.approved.retain(|_, id| *id != node_id);
                     self.approved.insert(pk, node_id);
                     if let Err(e) = self.save() {
                         warn!("saving pairings: {e:#}");
@@ -289,8 +377,17 @@ impl Hub {
                 };
                 // A newer command for the same channel replaces an older one still queued.
                 node.commands.retain(|(c, _)| *c != channel);
-                if node.commands.len() >= MAX_QUEUED_COMMANDS {
-                    node.commands.pop_front();
+                if node.commands.len() >= MAX_QUEUED_COMMANDS
+                    && let Some((c, v)) = node.commands.pop_front()
+                {
+                    // Tell the PC so the app can show it failed (finding 30).
+                    warn!("node {node_id} command queue full; dropped ch {c} = {v}");
+                    out.to_pc.push(HubMsg::CommandDropped {
+                        node_id,
+                        channel: c,
+                        value: v,
+                        ts: unix,
+                    });
                 }
                 node.commands.push_back((channel, value));
                 // Wi-Fi nodes listen all the time, so send now. LoRa nodes get
@@ -371,7 +468,13 @@ fn packet_to_pc(node_id: u16, p: &Packet, ts: i64, out: &mut Vec<HubMsg>) {
             text: p.text().to_string(),
             ts,
         }),
-        Packet::Ack { .. } | Packet::Command { .. } => {}
+        Packet::Ack { channel, value } => out.push(HubMsg::CommandAcked {
+            node_id,
+            channel: *channel,
+            value: *value,
+            ts,
+        }),
+        Packet::Command { .. } => {}
     }
 }
 
@@ -397,7 +500,8 @@ mod tests {
         // 1. pairing request goes to the PC, nothing is sent back yet
         let out = hub.on_frame(&node.pair_request(), link, 0, 100);
         assert!(out.frames.is_empty());
-        let HubMsg::PairRequest { public_key, .. } = &out.to_pc[0] else {
+        assert!(out.to_pc.is_empty(), "pair requests are never stored");
+        let HubMsg::PairRequest { public_key, .. } = &out.live[0] else {
             panic!()
         };
 
@@ -462,5 +566,120 @@ mod tests {
                 value: 1
             }
         );
+    }
+
+    /// Pairs `node` as `id` through the normal approve flow and starts a session.
+    fn pair_and_connect(hub: &mut Hub, node: &mut NodeCore, id: u16, link: Link) {
+        hub.on_pc(
+            PcMsg::ApprovePair {
+                public_key: uplink::key_to_hex(&node.public_key()),
+                node_id: id,
+            },
+            0,
+            0,
+        );
+        let out = hub.on_frame(&node.pair_request(), link, 0, 0);
+        node.handle_frame(&out.frames[0].1, 0).unwrap();
+        let out = hub.on_frame(&node.start_handshake(&rand48(), 0).unwrap(), link, 0, 0);
+        node.handle_frame(&out.frames[0].1, 0).unwrap();
+    }
+
+    fn udp() -> Link {
+        Link::Udp("127.0.0.1:9999".parse().unwrap())
+    }
+
+    #[test]
+    fn approval_for_taken_id_is_refused() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let mut a = NodeCore::new(&[2u8; 32], None);
+        pair_and_connect(&mut hub, &mut a, 1, udp());
+        let b = NodeCore::new(&[3u8; 32], None);
+        let out = hub.on_pc(
+            PcMsg::ApprovePair {
+                public_key: uplink::key_to_hex(&b.public_key()),
+                node_id: 1,
+            },
+            0,
+            0,
+        );
+        assert!(matches!(
+            out.to_pc[0],
+            HubMsg::ApproveFailed { node_id: 1, .. }
+        ));
+        // node 1 still belongs to A
+        assert_eq!(hub.nodes[&1].public_key, a.public_key());
+    }
+
+    #[test]
+    fn pair_request_flood_is_rate_limited_and_never_stored() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let mut forwarded = 0;
+        for i in 0..20u8 {
+            let n = NodeCore::new(&[i + 10; 32], None);
+            let out = hub.on_frame(&n.pair_request(), udp(), 0, 1000);
+            assert!(out.to_pc.is_empty());
+            forwarded += out.live.len();
+        }
+        assert_eq!(forwarded, 1, "at most one pairing request per second");
+    }
+
+    #[test]
+    fn hello_flood_is_rate_limited() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let mut node = NodeCore::new(&[2u8; 32], None);
+        pair_and_connect(&mut hub, &mut node, 1, udp()); // 1 HELLO used
+        let mut answered = 0;
+        for _ in 0..10 {
+            let hello = node.start_handshake(&rand48(), 1).unwrap();
+            answered += hub.on_frame(&hello, udp(), 1, 0).frames.len();
+        }
+        assert_eq!(answered, HELLOS_PER_WINDOW - 1);
+    }
+
+    #[test]
+    fn ack_and_dropped_commands_reach_the_pc() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let mut node = NodeCore::new(&[2u8; 32], None);
+        pair_and_connect(&mut hub, &mut node, 1, Link::Lora);
+        // node's first frame confirms the session
+        hub.on_frame(&node.seal(&Packet::data(&[]), 0).unwrap(), Link::Lora, 0, 0);
+        // LoRa node: commands queue up until the node transmits
+        let mut dropped = 0;
+        for ch in 0..(MAX_QUEUED_COMMANDS as u8 + 3) {
+            let out = hub.on_pc(
+                PcMsg::Command {
+                    node_id: 1,
+                    channel: ch,
+                    value: 1,
+                },
+                0,
+                0,
+            );
+            dropped += out
+                .to_pc
+                .iter()
+                .filter(|m| matches!(m, HubMsg::CommandDropped { .. }))
+                .count();
+        }
+        assert_eq!(dropped, 3);
+        let ack = node
+            .seal(
+                &Packet::Ack {
+                    channel: 5,
+                    value: 1,
+                },
+                0,
+            )
+            .unwrap();
+        let out = hub.on_frame(&ack, Link::Lora, 0, 0);
+        assert!(out.to_pc.iter().any(|m| matches!(
+            m,
+            HubMsg::CommandAcked {
+                node_id: 1,
+                channel: 5,
+                value: 1,
+                ..
+            }
+        )));
     }
 }

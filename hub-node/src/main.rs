@@ -44,8 +44,12 @@ enum Cmd {
     /// First-time setup: make the hub identity and show its 24-word recovery phrase.
     Init,
     /// Rebuild the hub identity from its 24-word phrase (read from stdin).
-    Restore,
-    /// Print the hub's public key fingerprint.
+    Restore {
+        /// Replace an existing identity.key (nodes paired to the old key stop working).
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print the hub's public key and fingerprint.
     Fingerprint,
 }
 
@@ -68,18 +72,31 @@ async fn main() -> Result<()> {
                     "this hub already has an identity; delete identity.key first if you really mean it"
                 );
             }
-            // CRYPTO-REVIEW: the phrase is printed once and never saved.
+            // CRYPTO-REVIEW: the phrase is printed once and never saved. The
+            // key derived from it IS saved (identity.key) so the hub can start
+            // unattended; protect that file like the phrase.
             let m = seed::generate()?;
             seed::save(&cfg.data_dir, &seed::identity_seed(&m))?;
             println!("\nWRITE THESE 24 WORDS DOWN AND KEEP THEM SAFE. They restore this hub:\n");
             for (i, w) in m.words().enumerate() {
                 println!("{:>2}. {w}", i + 1);
             }
-            println!("\nThey are not stored anywhere on this Pi.");
+            println!(
+                "\nThe words themselves are not saved. The hub's private key made from them IS saved in\n\
+                 {} (readable only by this user) so the hub can start on its own.\n\
+                 Anyone who can read that file can pretend to be this hub: keep the SD card safe.",
+                cfg.data_dir.join(seed::IDENTITY_FILE).display()
+            );
             print_fingerprint(&cfg)?;
             Ok(())
         }
-        Cmd::Restore => {
+        Cmd::Restore { force } => {
+            if cfg.data_dir.join(seed::IDENTITY_FILE).exists() && !force {
+                anyhow::bail!(
+                    "this hub already has an identity. Restoring would replace it, and every node \
+                     paired to the current key would stop working. Re-run with --force if you mean it."
+                );
+            }
             println!("Type the 24 words, separated by spaces, then press Enter:");
             let mut line = String::new();
             std::io::stdin().lock().read_line(&mut line)?;
@@ -97,11 +114,16 @@ fn print_fingerprint(cfg: &config::Config) -> Result<()> {
     let seed = seed::load(&cfg.data_dir)?;
     let pk = crypto_sharecrate::crypto::identity::Identity::from_seed(&seed).public_key();
     println!("Hub fingerprint: {}", uplink::fingerprint_hex(&pk));
+    println!("Hub public key:  {}", uplink::key_to_hex(&pk));
+    println!(
+        "(build node firmware with FFA_HUB_KEY=<public key> so nodes only pair with this hub)"
+    );
     Ok(())
 }
 
 async fn run(cfg: config::Config) -> Result<()> {
     let seed = seed::load(&cfg.data_dir)?;
+    let pc_key = cfg.pc_key()?;
     let mut hub = Hub::new(&seed, Some(cfg.data_dir.join("paired.json")))?;
     info!(
         "hub fingerprint {}",
@@ -112,6 +134,8 @@ async fn run(cfg: config::Config) -> Result<()> {
 
     let (in_tx, mut in_rx) = mpsc::channel::<Inbound>(256);
     let (pc_tx, mut pc_rx) = mpsc::unbounded_channel();
+    // Live-only messages to the PC (dropped if the PC is away or this fills up).
+    let (live_tx, live_rx) = mpsc::channel(64);
 
     let udp = Arc::new(UdpSocket::bind(&cfg.udp_listen).await?);
     info!("listening for Wi-Fi nodes on udp://{}", cfg.udp_listen);
@@ -133,9 +157,11 @@ async fn run(cfg: config::Config) -> Result<()> {
     tokio::spawn(pc_link::run(
         seed,
         cfg.pc_addr.clone(),
+        pc_key,
         cfg.data_dir.join("pc_pairing.json"),
         store.clone(),
         pc_tx,
+        live_rx,
     ));
 
     let mut flush = tokio::time::interval(Duration::from_secs(cfg.flush_interval_secs.max(60)));
@@ -172,6 +198,9 @@ async fn run(cfg: config::Config) -> Result<()> {
                     }
                 }
             }
+        }
+        for m in out.live {
+            let _ = live_tx.try_send(m);
         }
         if !out.to_pc.is_empty() {
             let mut st = store.lock().unwrap();

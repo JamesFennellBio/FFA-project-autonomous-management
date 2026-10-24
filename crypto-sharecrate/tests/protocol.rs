@@ -215,7 +215,7 @@ fn ack_from_wrong_hub_rejected() {
 }
 
 #[test]
-fn replayed_hello_does_not_break_live_session() {
+fn replayed_hello_rejected_and_live_session_survives() {
     let (mut node, mut hub) = paired();
     let hello = node.start_handshake(&rand48(1), 0).unwrap();
     let ack = hub
@@ -225,15 +225,75 @@ fn replayed_hello_does_not_break_live_session() {
     node.handle_frame(&ack, 0).unwrap();
     hub_open(&mut hub, &node.seal(&data(1), 0).unwrap(), 0).unwrap();
 
-    // attacker replays the old HELLO: hub makes a pending session nobody can use
-    hub.peer
-        .on_hello(&hello, &hub.node_pub, &hub.id, &rand48(3), 8, 0)
-        .unwrap();
+    // attacker replays the old HELLO: refused outright
+    assert_eq!(
+        hub.peer
+            .on_hello(&hello, &hub.node_pub, &hub.id, &rand48(3), 8, 0)
+            .err(),
+        Some(Error::ReplayedHello)
+    );
     // the live session keeps working
     assert_eq!(
         hub_open(&mut hub, &node.seal(&data(2), 0).unwrap(), 0).unwrap(),
         data(2)
     );
+}
+
+#[test]
+fn old_replay_cannot_evict_genuine_pending_session() {
+    let (mut node, mut hub) = paired();
+    // attacker recorded an earlier HELLO from another boot of this node
+    let mut old = NodeCore::new(&NODE_SEED, node.pairing());
+    let recorded = old.start_handshake(&rand48(40), 0).unwrap();
+
+    // genuine handshake starts...
+    let hello = node.start_handshake(&rand48(1), 0).unwrap();
+    let ack = hub
+        .peer
+        .on_hello(&hello, &hub.node_pub, &hub.id, &rand48(2), 7, 0)
+        .unwrap();
+    // ...the attacker replays the recorded HELLO before the node's first frame
+    hub.peer
+        .on_hello(&recorded, &hub.node_pub, &hub.id, &rand48(3), 8, 0)
+        .unwrap();
+    // the genuine session still confirms
+    node.handle_frame(&ack, 0).unwrap();
+    assert_eq!(
+        hub_open(&mut hub, &node.seal(&data(5), 0).unwrap(), 0).unwrap(),
+        data(5)
+    );
+}
+
+#[test]
+fn pinned_hub_key_rejects_other_hubs() {
+    let hub_id = Identity::from_seed(&HUB_SEED);
+    let attacker = Identity::from_seed(&[0x66; 32]);
+    let mut node = NodeCore::new(&NODE_SEED, None).with_expected_peer(hub_id.public_key());
+    let pk = node.public_key();
+    // attacker answers first with a validly signed accept for this node
+    let evil = pairing::pair_accept(&attacker, &pk, 3);
+    assert_eq!(node.handle_frame(&evil, 0), Err(Error::WrongPeer));
+    assert!(!node.is_paired());
+    // the real hub's accept still works
+    let good = pairing::pair_accept(&hub_id, &pk, 3);
+    assert!(matches!(
+        node.handle_frame(&good, 0),
+        Ok(NodeEvent::Paired(_))
+    ));
+}
+
+#[test]
+fn saved_pairing_with_wrong_key_is_dropped_when_pinned() {
+    let other = Identity::from_seed(&[0x77; 32]);
+    let node = NodeCore::new(
+        &NODE_SEED,
+        Some(Pairing {
+            node_id: 1,
+            peer_pub: other.public_key(),
+        }),
+    )
+    .with_expected_peer(Identity::from_seed(&HUB_SEED).public_key());
+    assert!(!node.is_paired());
 }
 
 #[test]

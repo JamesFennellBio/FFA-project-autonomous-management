@@ -9,6 +9,10 @@ udp_listen = "0.0.0.0:7300"
 # The PC running pc-daemon. Give the PC a fixed IP (DHCP reservation) on your router.
 pc_addr = "192.168.1.50:7400"
 
+# REQUIRED. The PC daemon's public key: copy it from the app's Pairing page
+# (or pc-daemon's startup log). The hub will only ever pair with this PC.
+pc_public_key = "paste-the-64-character-key-here"
+
 # How often the RAM database is written to the SD card (seconds). Default: once a day.
 flush_interval_secs = 86400
 

@@ -99,6 +99,8 @@ struct App<'d> {
     failsafe_tripped: bool,
     announced: bool,
     last_faults: heapless::Vec<u8, 7>,
+    /// Commands applied but not yet acknowledged to the hub.
+    pending_acks: heapless::Vec<(u8, i32), 8>,
 }
 
 impl App<'_> {
@@ -112,13 +114,21 @@ impl App<'_> {
         }
     }
 
+    /// Any valid, authenticated frame from the hub. Also re-arms the failsafe
+    /// (finding 01: before, only a new session re-armed it, so after one
+    /// outage a second outage could leave outputs on).
+    fn contact(&mut self) {
+        self.last_contact = Instant::now();
+        self.failsafe_tripped = false;
+    }
+
     fn handle(&mut self, frame: &[u8]) {
         match self.core.handle_frame(frame, secs()) {
             Ok(NodeEvent::Paired(p)) => {
                 self.save();
                 let fp = uplink_fp(&p.peer_pub);
                 log::info!("PAIRED as node {} with hub {}", p.node_id, fp.as_str());
-                self.last_contact = Instant::now();
+                self.contact();
             }
             Ok(NodeEvent::SessionUp { epoch }) => {
                 log::info!(
@@ -126,19 +136,21 @@ impl App<'_> {
                     self.core.sessions_started(),
                     epoch
                 );
-                self.last_contact = Instant::now();
-                self.failsafe_tripped = false;
+                self.contact();
             }
             Ok(NodeEvent::Command { channel, value }) => {
-                self.last_contact = Instant::now();
+                self.contact();
                 if self.chans.set_output(channel, value) {
                     log::info!("command: channel {channel} = {value}");
+                    // Confirm to the hub (finding 10). If the list is full the
+                    // next Data report still shows the output's state.
+                    let _ = self.pending_acks.push((channel, value));
                 } else {
                     log::warn!("command for channel {channel}, which is not an output");
                 }
             }
             Ok(NodeEvent::Packet(p)) => {
-                self.last_contact = Instant::now();
+                self.contact();
                 log::info!("hub says: {}", p.text());
             }
             Ok(NodeEvent::Ignored) => {}
@@ -154,7 +166,25 @@ impl App<'_> {
             let left = (deadline - Instant::now()).as_millis().max(1);
             if let Some(f) = self.radios.recv(via, left).await {
                 self.handle(&f);
+                self.send_acks(via).await;
                 if stop(&self.core) {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Sends an encrypted Ack for each command applied since the last call.
+    /// Each Ack uses one of the session's 10 messages.
+    async fn send_acks(&mut self, via: Via) {
+        while let Some((channel, value)) = self.pending_acks.pop() {
+            match self.core.seal(&Packet::Ack { channel, value }, secs()) {
+                Ok(f) => {
+                    self.send(via, &f).await;
+                }
+                Err(_) => {
+                    // Session used up: the hub will see the state in the next report.
+                    self.pending_acks.clear();
                     return;
                 }
             }
@@ -348,7 +378,28 @@ async fn main(spawner: Spawner) -> ! {
             ps
         }
     };
-    let core = NodeCore::new(&persist.seed, persist.pairing);
+    let mut core = NodeCore::new(&persist.seed, persist.pairing);
+    // CRYPTO-REVIEW: with FFA_HUB_KEY set at build time, the node only pairs
+    // with that hub (findings 03/17). Without it, pairing is trust-on-first-use.
+    match config::hub_key() {
+        Some(k) => {
+            core = core.with_expected_peer(k);
+            if persist.pairing.is_some() && !core.is_paired() {
+                log::warn!("saved pairing is for a different hub than FFA_HUB_KEY; pair again");
+                storage::save(
+                    &mut flash,
+                    &Persist {
+                        seed: persist.seed,
+                        pairing: None,
+                    },
+                );
+            }
+            log::info!("pairing locked to hub {}", uplink_fp(&k).as_str());
+        }
+        None => log::warn!(
+            "FFA_HUB_KEY not set: this node will trust the first hub that answers while pairing"
+        ),
+    }
     let fp = core.fingerprint();
     log::info!(
         "FFA data node, fingerprint {}",
@@ -419,6 +470,7 @@ async fn main(spawner: Spawner) -> ! {
         failsafe_tripped: false,
         announced: false,
         last_faults: heapless::Vec::new(),
+        pending_acks: heapless::Vec::new(),
     };
     app.run().await
 }

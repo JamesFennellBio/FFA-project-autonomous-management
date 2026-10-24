@@ -80,6 +80,8 @@ async fn status(State(s): St) -> ApiResult {
     let hub = s.hub.lock().unwrap();
     Ok(Json(json!({
         "pc_fingerprint": uplink::fingerprint_hex(&s.identity.public_key()),
+        // Goes in hub.toml as pc_public_key.
+        "pc_public_key": uplink::key_to_hex(&s.identity.public_key()),
         "hub": {
             "paired": paired.is_some(),
             "fingerprint": paired.map(|(_, k)| uplink::fingerprint_hex(&k)),
@@ -213,11 +215,23 @@ async fn rename_node(State(s): St, Path(id): Path<u16>, Json(b): Json<NameBody>)
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Unpairs a node. The hub has to hear about it, or it would keep trusting
+/// the node's key, so this refuses while the hub is offline. The node's rules
+/// go too, so they can never act on another device (finding 16). Its id is
+/// never handed out again (see db::next_node_id).
 async fn delete_node(State(s): St, Path(id): Path<u16>) -> ApiResult {
-    s.db.lock()
-        .unwrap()
-        .execute("DELETE FROM nodes WHERE id = ?1", [id])?;
-    s.send_to_hub(PcMsg::Unpair { node_id: id });
+    if !s.send_to_hub(PcMsg::Unpair { node_id: id }) {
+        return Err(err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hub is offline; it must be connected to unpair a node",
+        ));
+    }
+    let conn = s.db.lock().unwrap();
+    conn.execute(
+        "DELETE FROM rules WHERE node_id = ?1 OR target_node = ?1",
+        [id],
+    )?;
+    conn.execute("DELETE FROM nodes WHERE id = ?1", [id])?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -445,11 +459,43 @@ async fn update_rule(State(s): St, Path(id): Path<i64>, Json(b): Json<RuleBody>)
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Deleting a rule that is currently "on" first sends its off command, so the
+/// output isn't left latched (finding 24).
 async fn delete_rule(State(s): St, Path(id): Path<i64>) -> ApiResult {
-    s.db.lock()
-        .unwrap()
-        .execute("DELETE FROM rules WHERE id = ?1", [id])?;
-    Ok(Json(json!({ "ok": true })))
+    let off = {
+        let conn = s.db.lock().unwrap();
+        let off: Option<(u16, u8, Option<i32>, bool)> = conn
+            .query_row(
+                "SELECT target_node, target_channel, off_value, active FROM rules WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)),
+            )
+            .optional()?;
+        conn.execute("DELETE FROM rules WHERE id = ?1", [id])?;
+        match off {
+            Some((node, ch, Some(v), true)) => {
+                db::insert_command(
+                    &conn,
+                    node,
+                    ch,
+                    v,
+                    &format!("rule:{id}:deleted"),
+                    unix_now(),
+                )?;
+                Some((node, ch, v))
+            }
+            _ => None,
+        }
+    };
+    let mut sent_off = false;
+    if let Some((node_id, channel, value)) = off {
+        sent_off = s.send_to_hub(PcMsg::Command {
+            node_id,
+            channel,
+            value,
+        });
+    }
+    Ok(Json(json!({ "ok": true, "sent_off_command": sent_off })))
 }
 
 #[cfg(test)]

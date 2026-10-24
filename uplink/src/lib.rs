@@ -68,10 +68,33 @@ pub enum HubMsg {
         epoch: u32,
         ts: i64,
     },
+    /// The hub transmitted a command (not proof the node got it).
     CommandSent {
         node_id: u16,
         channel: u8,
         value: i32,
+        ts: i64,
+    },
+    /// The node confirmed it applied the command (its encrypted Ack).
+    CommandAcked {
+        node_id: u16,
+        channel: u8,
+        value: i32,
+        ts: i64,
+    },
+    /// The hub's per-node queue was full and this command was thrown away.
+    CommandDropped {
+        node_id: u16,
+        channel: u8,
+        value: i32,
+        ts: i64,
+    },
+    /// The hub refused a pairing approval (e.g. the node id is already pinned
+    /// to a different key).
+    ApproveFailed {
+        public_key: String,
+        node_id: u16,
+        reason: String,
         ts: i64,
     },
     Heartbeat {

@@ -23,6 +23,8 @@ export interface NodeInfo {
 
 export interface Status {
   pc_fingerprint: string;
+  /** Goes in hub.toml as pc_public_key. */
+  pc_public_key: string;
   time: number;
   hub: {
     paired: boolean;

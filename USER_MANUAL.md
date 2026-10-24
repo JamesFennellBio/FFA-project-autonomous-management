@@ -62,18 +62,23 @@ rustup target add riscv32imc-unknown-none-elf
 cargo install espflash --locked
 ```
 
-Each node (fill in your network and the Pi's IP; give the Pi a DHCP reservation on your router):
+Each node: fill in your network, the Pi's IP (give it a DHCP reservation on
+your router) and the **hub's public key**, which `hub-node fingerprint` prints
+on the Pi. With `FFA_HUB_KEY` set, the node refuses to pair with any other hub.
+Without it, someone nearby could answer the node's pairing request first.
 
 ```bash
-cd data-node && FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="your-password" FFA_HUB_IP="192.168.1.10" FFA_TRANSPORT="wifi" cargo run --release
+cd data-node && FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="your-password" FFA_HUB_IP="192.168.1.10" FFA_HUB_KEY="<hub public key>" FFA_TRANSPORT="wifi" cargo run --release
 ```
 
 `FFA_TRANSPORT` is `wifi`, `lora` or `auto` (Wi-Fi while connected, otherwise
 LoRa). `lora` and `auto` need the LoRa module and `--features lora`:
 
 ```bash
-cd data-node && FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="your-password" FFA_HUB_IP="192.168.1.10" FFA_TRANSPORT="auto" cargo run --release --features lora
+cd data-node && FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="your-password" FFA_HUB_IP="192.168.1.10" FFA_HUB_KEY="<hub public key>" FFA_TRANSPORT="auto" cargo run --release --features lora
 ```
+
+Set up the Pi first (next section) so you have the hub key.
 
 On first boot the node creates its identity and prints a fingerprint like
 `FFA data node, fingerprint 8FA7-0608-CEBB-45C1`. Write it down for pairing.
@@ -105,13 +110,20 @@ On the Pi:
 sudo useradd -r -G spi,gpio ffa; sudo install hub-node /usr/local/bin/; sudo mkdir -p /etc/ffa-hub /var/lib/ffa-hub; sudo chown ffa /var/lib/ffa-hub; sudo cp hub.example.toml /etc/ffa-hub/hub.toml; sudo nano /etc/ffa-hub/hub.toml
 ```
 
-Set `pc_addr` to your PC's IP and `lora.enabled = true`. Then create the hub identity:
+Set `pc_addr` to your PC's IP, `pc_public_key` to the PC's public key
+(start `pc-daemon` first; the key is in its log and on the app's Pairing
+page), and `lora.enabled = true`. The hub will only ever talk to that PC.
+Then create the hub identity:
 
 ```bash
 sudo -u ffa hub-node --config /etc/ffa-hub/hub.toml init
 ```
 
-**Write the 24 words on paper.** They're shown once and never saved. Then start the service:
+**Write the 24 words on paper.** The words are shown once and never saved.
+The private key made from them *is* saved in `/var/lib/ffa-hub/identity.key`
+so the hub can start by itself, so keep the SD card safe. Note the
+**Hub public key** it prints: that's `FFA_HUB_KEY` for the nodes (you can
+see it again with `hub-node fingerprint`). Then start the service:
 
 ```bash
 sudo cp ffa-hub.service /etc/systemd/system/ && sudo systemctl enable --now ffa-hub
@@ -150,16 +162,18 @@ cd frontend && npm run dist
 Pairing is how devices learn to trust each other's keys. It's the only step
 where a **person** decides, so check fingerprints carefully.
 
-1. **Hub → PC (once):** with the daemon and hub running, open **Pairing** in the
-   app. "Hub (Raspberry Pi)" appears. Check that its fingerprint matches
-   `hub-node fingerprint` on the Pi, then click **Approve**.
+1. **Hub → PC (once):** with `pc_public_key` set in hub.toml and both the
+   daemon and hub running, open **Pairing** in the app. "Hub (Raspberry Pi)"
+   appears. Check that its fingerprint matches `hub-node fingerprint` on the
+   Pi, then click **Approve**.
 2. **Node → hub:** with the node running, **press and hold BOOT for 3 seconds**
    (not while plugging it in; that starts the ESP32's flashing mode). For
    60 seconds the node asks to pair. In the app, check that the fingerprint
    matches the node's serial log, give it a name, and click **Approve**.
    The node logs `PAIRED as node 1 with hub 23C8-…`. Check that this hub
    fingerprint matches the one in the app's sidebar.
-3. **Unpair a node:** Devices → Unpair in the app, *and* hold BOOT on the node for 10 seconds.
+3. **Unpair a node:** Devices → Unpair in the app (the hub must be online), *and* hold BOOT on the node for 10 seconds.
+   Unpairing also deletes the node's automation rules. Its id is never given to another node.
 
 ## Using the app
 
@@ -194,6 +208,9 @@ Set up a new SD card, install hub-node as above, then:
 sudo -u ffa hub-node --config /etc/ffa-hub/hub.toml restore
 ```
 
+(On a Pi that already has an identity, add `--force`. Only do this if you
+mean to replace it: nodes paired with the old key stop working.)
+
 Type the 24 words. You get the same hub identity back, so the nodes keep
 working. Copy `paired.json` from a backup of `/var/lib/ffa-hub`, or re-pair the
 nodes. You also need to re-approve the hub on the PC if the PC lost its database.
@@ -209,3 +226,6 @@ nodes. You also need to re-approve the hub on the PC if the PC lost its database
 | `SX1262 init failed` | Check wiring, especially BUSY/RESET. Ebyte E22 modules need `tcxo = true` (hub) / `tcxo: true` in `setup_lora` (node). |
 | Temperature missing / "Sensor fault" alert | DS18B20 needs the 4.7 kΩ pull-up between DATA and 3V3. |
 | Readings stop when the PC is off | That's expected. The hub stores them (30 days) and sends the backlog when the PC comes back. |
+| Hub log: "answered with a key that is not pc_public_key" | `pc_public_key` in hub.toml doesn't match this PC. Copy it again from the app's Pairing page. |
+| Node log: "saved pairing is for a different hub than FFA_HUB_KEY" | The node was paired to another hub before. Pair it again. |
+| Command shows "dropped" | A LoRa node was out of reach long enough for 16+ commands to queue. Send it again once the node reports in. |

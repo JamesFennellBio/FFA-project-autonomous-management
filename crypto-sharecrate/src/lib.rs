@@ -47,6 +47,10 @@ pub enum Error {
     NotPaired,
     /// A handshake reply arrived but we have no handshake in progress.
     NoHandshake,
+    /// Validly signed, but by a key other than the one pinned in advance.
+    WrongPeer,
+    /// This exact HELLO was already seen (replay).
+    ReplayedHello,
 }
 
 impl core::fmt::Display for Error {

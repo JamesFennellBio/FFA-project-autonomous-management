@@ -21,6 +21,16 @@ pub fn open(path: &Path) -> Result<Connection> {
 pub fn init(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.execute_batch(SCHEMA)?;
+    // Older databases had a `delivered` flag instead of `status`.
+    let has_status: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('commands') WHERE name = 'status'")?
+        .exists([])?;
+    if !has_status {
+        conn.execute(
+            "ALTER TABLE commands ADD COLUMN status TEXT NOT NULL DEFAULT 'queued'",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -67,11 +77,59 @@ pub fn hub_last_seq(conn: &Connection) -> Result<i64> {
 }
 
 /// Next free node id (1..=65534).
+/// Next node id. Ids are never reused, even after a node is deleted
+/// (findings 16/22/31): the counter only goes up, and it also skips past any
+/// id that still has readings or rules.
 pub fn next_node_id(conn: &Connection) -> Result<u16> {
-    let max: Option<i64> = conn.query_row("SELECT MAX(id) FROM nodes", [], |r| r.get(0))?;
-    let id = max.unwrap_or(0) + 1;
+    let counter: i64 = conn
+        .query_row(
+            "SELECT value FROM counters WHERE name = 'node_id'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    let used: i64 = conn.query_row(
+        "SELECT MAX(m) FROM (
+            SELECT MAX(id) AS m FROM nodes
+            UNION ALL SELECT MAX(node_id) FROM readings
+            UNION ALL SELECT MAX(node_id) FROM rules
+            UNION ALL SELECT MAX(target_node) FROM rules)",
+        [],
+        |r| Ok(r.get::<_, Option<i64>>(0)?.unwrap_or(0)),
+    )?;
+    let id = counter.max(used) + 1;
     anyhow::ensure!(id < 0xFFFF, "no node ids left");
+    conn.execute(
+        "INSERT INTO counters (name, value) VALUES ('node_id', ?1)
+         ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+        [id],
+    )?;
     Ok(id as u16)
+}
+
+/// Marks the newest matching command with `status`, moving only forward.
+fn set_command_status(
+    conn: &Connection,
+    node_id: u16,
+    channel: u8,
+    value: i32,
+    from: &[&str],
+    to: &str,
+) -> Result<usize> {
+    let from = from
+        .iter()
+        .map(|s| format!("'{s}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(conn.execute(
+        &format!(
+            "UPDATE commands SET status = ?4 WHERE id = (
+                SELECT id FROM commands WHERE node_id = ?1 AND channel = ?2 AND value = ?3
+                AND status IN ({from}) ORDER BY id DESC LIMIT 1)"
+        ),
+        params![node_id, channel, value, to],
+    )?)
 }
 
 /// Stores one message from the hub. Returns commands that rules want sent.
@@ -163,11 +221,57 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<Pc
             value,
             ..
         } => {
+            set_command_status(conn, *node_id, *channel, *value, &["queued"], "sent")?;
+        }
+        // Finding 10: "acked" only when the node itself confirms.
+        HubMsg::CommandAcked {
+            node_id,
+            channel,
+            value,
+            ts,
+        } => {
+            set_command_status(
+                conn,
+                *node_id,
+                *channel,
+                *value,
+                &["queued", "sent"],
+                "acked",
+            )?;
             conn.execute(
-                "UPDATE commands SET delivered = 1 WHERE id = (
-                    SELECT id FROM commands WHERE node_id = ?1 AND channel = ?2 AND value = ?3 AND delivered = 0
-                    ORDER BY id DESC LIMIT 1)",
-                params![node_id, channel, value],
+                "UPDATE channels SET last_value = ?3, last_ts = ?4 WHERE node_id = ?1 AND channel = ?2",
+                params![node_id, channel, value, ts],
+            )?;
+        }
+        HubMsg::CommandDropped {
+            node_id,
+            channel,
+            value,
+            ts,
+        } => {
+            set_command_status(conn, *node_id, *channel, *value, &["queued"], "dropped")?;
+            conn.execute(
+                "INSERT INTO alerts (node_id, channel, code, value, message, ts) VALUES (?1, ?2, 101, ?3, ?4, ?5)",
+                params![node_id, channel, value, "Command dropped: the hub's queue for this node was full", ts],
+            )?;
+        }
+        HubMsg::ApproveFailed {
+            public_key,
+            node_id,
+            reason,
+            ts,
+        } => {
+            // Undo the node row approve() made, if that node never showed up.
+            conn.execute(
+                "DELETE FROM nodes WHERE id = ?1 AND public_key = ?2 AND last_seen IS NULL",
+                params![node_id, public_key],
+            )?;
+            conn.execute(
+                "INSERT INTO alerts (node_id, code, message, ts) VALUES (NULL, 102, ?1, ?2)",
+                params![
+                    format!("Pairing refused by the hub: {reason}. Try approving again."),
+                    ts
+                ],
             )?;
         }
         // Handled by hub_link (they update live state, not the DB).
@@ -190,4 +294,100 @@ pub fn insert_command(
         params![node_id, channel, value, source, ts],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        init(&c).unwrap();
+        c
+    }
+
+    #[test]
+    fn node_ids_are_never_reused() {
+        let c = conn();
+        let a = next_node_id(&c).unwrap();
+        c.execute(
+            "INSERT INTO nodes (id, public_key, name, paired_at) VALUES (?1, 'k1', 'A', 0)",
+            [a],
+        )
+        .unwrap();
+        c.execute("DELETE FROM nodes WHERE id = ?1", [a]).unwrap();
+        assert_ne!(next_node_id(&c).unwrap(), a);
+    }
+
+    #[test]
+    fn command_status_follows_hub_and_node() {
+        let c = conn();
+        insert_command(&c, 1, 2, 1, "app", 0).unwrap();
+        let status = || -> String {
+            c.query_row("SELECT status FROM commands", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(status(), "queued");
+        store_hub_msg(
+            &c,
+            0,
+            &HubMsg::CommandSent {
+                node_id: 1,
+                channel: 2,
+                value: 1,
+                ts: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(status(), "sent");
+        store_hub_msg(
+            &c,
+            0,
+            &HubMsg::CommandAcked {
+                node_id: 1,
+                channel: 2,
+                value: 1,
+                ts: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(status(), "acked");
+    }
+
+    #[test]
+    fn dropped_command_raises_alert() {
+        let c = conn();
+        insert_command(&c, 1, 2, 0, "app", 0).unwrap();
+        store_hub_msg(
+            &c,
+            0,
+            &HubMsg::CommandDropped {
+                node_id: 1,
+                channel: 2,
+                value: 0,
+                ts: 0,
+            },
+        )
+        .unwrap();
+        let (st, alerts): (String, i64) = c
+            .query_row(
+                "SELECT (SELECT status FROM commands), (SELECT COUNT(*) FROM alerts WHERE code = 101)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((st.as_str(), alerts), ("dropped", 1));
+    }
+
+    #[test]
+    fn old_database_gets_status_column() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE commands (id INTEGER PRIMARY KEY, node_id INTEGER NOT NULL, channel INTEGER NOT NULL,
+             value INTEGER NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);",
+        )
+        .unwrap();
+        init(&c).unwrap();
+        insert_command(&c, 1, 1, 1, "app", 0).unwrap();
+    }
 }

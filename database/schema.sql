@@ -52,14 +52,23 @@ CREATE TABLE IF NOT EXISTS commands (
     value       INTEGER NOT NULL,
     source      TEXT NOT NULL,             -- 'app' | 'rule:<id>'
     ts          INTEGER NOT NULL,
-    delivered   INTEGER NOT NULL DEFAULT 0
+    -- 'queued' (sent to hub) -> 'sent' (hub transmitted it) -> 'acked' (node
+    -- confirmed it applied it), or 'dropped' (hub queue overflowed).
+    status      TEXT NOT NULL DEFAULT 'queued'
+);
+
+-- Counters that must never go backwards (node ids are never reused, so an
+-- old rule or old readings can't attach to a new device).
+CREATE TABLE IF NOT EXISTS counters (
+    name        TEXT PRIMARY KEY,
+    value       INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
     id          INTEGER PRIMARY KEY,
     node_id     INTEGER,
     channel     INTEGER,
-    code        INTEGER NOT NULL,          -- 1 sensor fault, 2 threshold, 3 rebooted, 100 rule fired
+    code        INTEGER NOT NULL,          -- 1 sensor fault, 2 threshold, 3 rebooted, 100 rule fired, 101 command dropped, 102 pairing refused
     value       INTEGER,
     message     TEXT NOT NULL,
     ts          INTEGER NOT NULL,

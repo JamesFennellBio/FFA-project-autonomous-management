@@ -4,6 +4,17 @@
 //! A new handshake makes a *pending* session. It only replaces the current
 //! session once a frame under it verifies (key confirmation). That way a
 //! replayed or attacker-sent HELLO can't take down a working session.
+//!
+//! Replayed HELLOs (scan finding 29): an attacker who recorded an old, validly
+//! signed HELLO could replay it every time the real node starts a handshake,
+//! overwriting the real pending session so it never confirms. Two defences:
+//! - the nonces of recent HELLOs are remembered, and a repeat is rejected;
+//! - several pending sessions are kept (keyed by epoch), so an older replay
+//!   that slipped past the nonce list can't evict the genuine one.
+//!
+//! Residual risk: an attacker with a big stash of recorded HELLOs, replaying
+//! fast, can still fill the slots. That's no worse than jamming the radio,
+//! which can't be prevented anyway.
 
 use super::handshake::{self, HandshakeRandom};
 use super::identity::{Identity, PUBLIC_KEY_LEN};
@@ -11,10 +22,31 @@ use super::session::Session;
 use crate::frame::{HS_FRAME_LEN, Header};
 use crate::{Error, Result};
 
-#[derive(Default)]
+/// Pending (unconfirmed) sessions kept per peer.
+pub const PENDING_SLOTS: usize = 4;
+/// Recent HELLO nonces remembered per peer.
+pub const SEEN_NONCES: usize = 64;
+
 pub struct PeerSessions {
     current: Option<Session>,
-    pending: Option<Session>,
+    /// Oldest first.
+    pending: [Option<Session>; PENDING_SLOTS],
+    /// Ring buffer of recent HELLO nonces (bytes 35..51 of the HELLO).
+    seen: [[u8; 16]; SEEN_NONCES],
+    seen_next: usize,
+    seen_len: usize,
+}
+
+impl Default for PeerSessions {
+    fn default() -> Self {
+        Self {
+            current: None,
+            pending: Default::default(),
+            seen: [[0u8; 16]; SEEN_NONCES],
+            seen_next: 0,
+            seen_len: 0,
+        }
+    }
 }
 
 impl PeerSessions {
@@ -43,15 +75,38 @@ impl PeerSessions {
         now: u64,
     ) -> Result<[u8; HS_FRAME_LEN]> {
         let mut epoch = epoch_rand;
-        if let Some(cur) = &self.current
-            && cur.epoch == epoch
-        {
-            epoch ^= 1;
+        while self.epoch_in_use(epoch) {
+            epoch = epoch.wrapping_add(1);
         }
+        // respond() checks the length and signature first, so a forged frame
+        // never gets into the nonce list.
         let (ack, session) = handshake::respond(hello, peer_pub, identity, epoch, rand, now)?;
-        // Overwrites any older pending session (its keys are wiped on drop).
-        self.pending = Some(session);
+        let mut nonce = [0u8; 16];
+        nonce.copy_from_slice(&hello[35..51]);
+        // CRYPTO-REVIEW: a HELLO nonce is 16 random bytes from the node, so a
+        // repeat means a replay. The ACK and session made above are thrown away.
+        if self.seen[..self.seen_len].contains(&nonce) {
+            return Err(Error::ReplayedHello);
+        }
+        self.seen[self.seen_next] = nonce;
+        self.seen_next = (self.seen_next + 1) % SEEN_NONCES;
+        self.seen_len = (self.seen_len + 1).min(SEEN_NONCES);
+
+        // Keep up to PENDING_SLOTS pending sessions; the oldest is dropped
+        // (and its keys wiped) when they're all full.
+        if self.pending.iter().all(Option::is_some) {
+            self.pending.rotate_left(1);
+            self.pending[PENDING_SLOTS - 1] = None;
+        }
+        if let Some(slot) = self.pending.iter_mut().find(|p| p.is_none()) {
+            *slot = Some(session);
+        }
         Ok(ack)
+    }
+
+    fn epoch_in_use(&self, epoch: u32) -> bool {
+        self.current.as_ref().is_some_and(|s| s.epoch == epoch)
+            || self.pending.iter().flatten().any(|s| s.epoch == epoch)
     }
 
     /// Opens a frame under the current or pending session, chosen by epoch.
@@ -68,13 +123,18 @@ impl PeerSessions {
         {
             return cur.open(frame, out, now);
         }
-        if let Some(p) = self.pending.as_mut()
-            && p.epoch == h.epoch
+        if let Some(i) = self
+            .pending
+            .iter()
+            .position(|p| p.as_ref().is_some_and(|s| s.epoch == h.epoch))
         {
-            let r = p.open(frame, out, now)?;
-            // CRYPTO-REVIEW: key confirmation passed, switch sessions and
-            // drop (and wipe) the old one.
-            self.current = self.pending.take();
+            let slot = &mut self.pending[i];
+            let r = slot.as_mut().expect("found above").open(frame, out, now)?;
+            // CRYPTO-REVIEW: key confirmation passed. This session becomes
+            // current; the old current and every other pending session are
+            // dropped (keys wiped).
+            self.current = slot.take();
+            self.pending = Default::default();
             return Ok(r);
         }
         Err(Error::WrongEpoch)
@@ -83,6 +143,6 @@ impl PeerSessions {
     /// Forget all sessions (node unpaired / removed).
     pub fn clear(&mut self) {
         self.current = None;
-        self.pending = None;
+        self.pending = Default::default();
     }
 }

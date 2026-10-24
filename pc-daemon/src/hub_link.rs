@@ -4,17 +4,29 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use crypto_sharecrate::crypto::{handshake, pairing, responder::PeerSessions};
 use crypto_sharecrate::frame::FrameType;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tracing::{info, warn};
 use uplink::{HubBatch, HubMsg, PcBatch, PcMsg, mono_now, read_frame, unix_now, write_frame};
 
 use crate::db;
 use crate::state::{AppState, PairKind, PendingPair};
+
+/// Max simultaneous TCP connections on the hub port (there's one real hub).
+const MAX_CONNECTIONS: usize = 4;
+/// A new connection must send its first frame this quickly...
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+/// ...and an established one must send something this often (the hub sends a
+/// heartbeat every 30 s).
+const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 pub async fn serve(state: Arc<AppState>, addr: SocketAddr) {
     let listener = match TcpListener::bind(addr).await {
@@ -25,18 +37,31 @@ pub async fn serve(state: Arc<AppState>, addr: SocketAddr) {
         }
     };
     info!("waiting for hub on {addr}");
+    // Finding 04: cap connections so idle sockets can't use up the daemon.
+    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
+                let Ok(permit) = slots.clone().try_acquire_owned() else {
+                    warn!("too many connections on the hub port; dropping {peer}");
+                    continue;
+                };
                 let st = state.clone();
+                let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(async move {
+                    let _permit = permit;
                     info!("hub connection from {peer}");
-                    if let Err(e) = handle(st.clone(), stream).await {
+                    if let Err(e) = handle(st.clone(), stream, conn_id).await {
                         warn!("hub connection {peer} closed: {e:#}");
                     }
+                    // Finding 14: only the connection that registered as the
+                    // hub may mark the hub offline.
                     let mut hub = st.hub.lock().unwrap();
-                    hub.connected = false;
-                    hub.tx = None;
+                    if hub.conn_id == Some(conn_id) {
+                        hub.connected = false;
+                        hub.tx = None;
+                        hub.conn_id = None;
+                    }
                 });
             }
             Err(e) => warn!("accept: {e}"),
@@ -54,21 +79,29 @@ fn hs_random() -> Result<([u8; 48], u32)> {
     Ok((hs, u32::from_le_bytes([r[48], r[49], r[50], r[51]])))
 }
 
-async fn handle(state: Arc<AppState>, stream: TcpStream) -> Result<()> {
+async fn handle(state: Arc<AppState>, stream: TcpStream, conn_id: u64) -> Result<()> {
     stream.set_nodelay(true)?;
     let (mut rd, mut wr) = stream.into_split();
     let (tx, mut rx) = mpsc::unbounded_channel::<PcMsg>();
     let mut peer = PeerSessions::new();
     let mut queue: Vec<PcMsg> = Vec::new();
     let mut registered = false;
+    // Set once the peer sends anything valid (a signed pairing request or a
+    // HELLO from the pinned hub). Until then the short timeout applies.
+    let mut proven = false;
 
     loop {
         tokio::select! {
-            frame = read_frame(&mut rd) => {
-                let frame = frame?;
+            frame = tokio::time::timeout(
+                if proven { IDLE_TIMEOUT } else { FIRST_FRAME_TIMEOUT },
+                read_frame(&mut rd),
+            ) => {
+                let frame = frame.map_err(|_| anyhow::anyhow!("timed out waiting for a frame"))??;
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
                     FrameType::PairRequest => {
-                        if let Some(reply) = on_pair_request(&state, &frame)? {
+                        let reply = on_pair_request(&state, &frame)?;
+                        proven = true;
+                        if let Some(reply) = reply {
                             write_frame(&mut wr, &reply).await?;
                         }
                     }
@@ -85,6 +118,7 @@ async fn handle(state: Arc<AppState>, stream: TcpStream) -> Result<()> {
                         let ack = peer
                             .on_hello(&frame, &hub_pub, &state.identity, &rand, epoch, mono_now())
                             .map_err(|e| anyhow::anyhow!("hello: {e}"))?;
+                        proven = true;
                         write_frame(&mut wr, &ack).await?;
                         state.hub.lock().unwrap().sessions += 1;
                     }
@@ -98,6 +132,7 @@ async fn handle(state: Arc<AppState>, stream: TcpStream) -> Result<()> {
                             let mut hub = state.hub.lock().unwrap();
                             hub.connected = true;
                             hub.tx = Some(tx.clone());
+                            hub.conn_id = Some(conn_id);
                             registered = true;
                             info!("hub session established");
                         }

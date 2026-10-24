@@ -15,6 +15,10 @@ pub struct Config {
     pub udp_listen: String,
     /// The PC daemon (`pc-daemon --hub-listen`), e.g. "192.168.1.50:7400".
     pub pc_addr: String,
+    /// CRYPTO-REVIEW: the PC daemon's public key (64 hex chars), shown in the
+    /// app under Pairing and in pc-daemon's startup log. The hub refuses any
+    /// other PC (finding 12).
+    pub pc_public_key: String,
     /// How often the RAM database is written to the SD card.
     #[serde(default = "default_flush")]
     pub flush_interval_secs: u64,
@@ -97,5 +101,12 @@ impl Config {
         let s =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))
+    }
+
+    pub fn pc_key(&self) -> Result<[u8; 32]> {
+        uplink::key_from_hex(self.pc_public_key.trim()).context(
+            "pc_public_key in hub.toml must be the PC's 64-character public key \
+             (shown on the app's Pairing page and in pc-daemon's log)",
+        )
     }
 }

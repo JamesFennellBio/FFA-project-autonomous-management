@@ -83,8 +83,10 @@ pub enum Packet {
         count: u8,
         channels: [ChannelInfo; MAX_ANNOUNCE],
     },
+    /// The node applied a Command: it echoes the channel and the value it set.
     Ack {
-        counter: u32,
+        channel: u8,
+        value: i32,
     },
 }
 
@@ -201,7 +203,10 @@ impl Packet {
                     b[2 + i * 2] = c.kind as u8;
                 }
             }
-            Packet::Ack { counter } => b[0..4].copy_from_slice(&counter.to_le_bytes()),
+            Packet::Ack { channel, value } => {
+                b[0] = *channel;
+                b[1..5].copy_from_slice(&value.to_le_bytes());
+            }
         }
         b
     }
@@ -260,7 +265,8 @@ impl Packet {
                 Packet::Announce { count, channels }
             }
             FrameType::Ack => Packet::Ack {
-                counter: u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                channel: b[0],
+                value: i32_at(1),
             },
             _ => return Err(Error::BadPacket),
         })

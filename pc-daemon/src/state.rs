@@ -35,6 +35,8 @@ pub struct HubLive {
     pub backlog: u64,
     pub sessions: u64,
     pub tx: Option<mpsc::UnboundedSender<PcMsg>>,
+    /// Which TCP connection owns `tx` (only that one may clear it).
+    pub conn_id: Option<u64>,
 }
 
 pub struct AppState {

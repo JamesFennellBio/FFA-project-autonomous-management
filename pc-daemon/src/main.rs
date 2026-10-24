@@ -69,6 +69,10 @@ async fn main() -> Result<()> {
         "PC identity fingerprint {}",
         uplink::fingerprint_hex(&state.identity.public_key())
     );
+    info!(
+        "PC public key (put this in hub.toml as pc_public_key): {}",
+        uplink::key_to_hex(&state.identity.public_key())
+    );
     info!("API token file: {}", config_dir.join("api-token").display());
 
     tokio::spawn(hub_link::serve(state.clone(), args.hub_listen));

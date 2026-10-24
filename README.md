@@ -33,15 +33,19 @@ alerts and automation rules. Every link is end-to-end encrypted with
 cargo build --workspace
 ```
 
-```bash
-cp hub-node/hub.example.toml /tmp/hub.toml && sed -i 's|/var/lib/ffa-hub|/tmp/ffa-hub|; s|192.168.1.50|127.0.0.1|' /tmp/hub.toml
-```
-
-Then in four terminals:
+Start the daemon first and copy the **PC public key** from its log:
 
 ```bash
 cargo run -p pc-daemon
 ```
+
+In another terminal, make a hub config with that key:
+
+```bash
+cp hub-node/hub.example.toml /tmp/hub.toml && sed -i 's|/var/lib/ffa-hub|/tmp/ffa-hub|; s|192.168.1.50|127.0.0.1|; s|paste-the-64-character-key-here|PASTE_PC_KEY_HERE|' /tmp/hub.toml
+```
+
+Then the hub, the app and a simulated node, each in its own terminal:
 
 ```bash
 cargo run -p hub-node -- --config /tmp/hub.toml init && cargo run -p hub-node -- --config /tmp/hub.toml
@@ -52,7 +56,7 @@ cd frontend && npm install && npm run dev
 ```
 
 ```bash
-cargo run -p node-sim -- --state /tmp/sim1.json --pair
+cargo run -p node-sim -- --state /tmp/sim1.json --pair --hub-key HUB_PUBLIC_KEY_FROM_INIT
 ```
 
 In the app, open **Pairing**, approve the hub, then approve the node. Readings

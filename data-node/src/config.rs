@@ -3,9 +3,10 @@
 //!
 //! ```bash
 //! export FFA_WIFI_SSID="FarmNet"
-//! export FFA_WIFI_PASSWORD="hunter22"
+//! export FFA_WIFI_PASSWORD="your-password"
 //! export FFA_HUB_IP="192.168.1.10"     # the Pi's IP address
 //! export FFA_TRANSPORT="auto"          # wifi | lora | auto
+//! export FFA_HUB_KEY="<64 hex chars>"  # from `hub-node fingerprint` (recommended)
 //! cargo run --release
 //! ```
 //!
@@ -34,6 +35,10 @@ const HUB_IP_STR: &str = match option_env!("FFA_HUB_IP") {
     Some(s) => s,
     None => "192.168.1.10",
 };
+/// CRYPTO-REVIEW: the hub's 64-hex-char public key (`hub-node fingerprint`).
+/// Strongly recommended: the node then refuses to pair with any other hub.
+/// It's a public key, so putting it in the firmware is fine.
+const HUB_KEY_STR: Option<&str> = option_env!("FFA_HUB_KEY");
 const TRANSPORT_STR: &str = match option_env!("FFA_TRANSPORT") {
     Some(s) => s,
     None => "wifi",
@@ -56,6 +61,28 @@ pub fn transport() -> TransportMode {
         "auto" => TransportMode::Auto,
         _ => TransportMode::Wifi,
     }
+}
+
+/// The pinned hub key, if FFA_HUB_KEY was set. A malformed value panics at
+/// boot so a typo can't silently fall back to trust-on-first-use.
+pub fn hub_key() -> Option<[u8; 32]> {
+    let s = HUB_KEY_STR?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let b = s.as_bytes();
+    assert!(b.len() == 64, "FFA_HUB_KEY must be 64 hex characters");
+    let nib = |c: u8| match c {
+        b'0'..=b'9' => c - b'0',
+        b'a'..=b'f' => c - b'a' + 10,
+        b'A'..=b'F' => c - b'A' + 10,
+        _ => panic!("FFA_HUB_KEY must be hex"),
+    };
+    let mut k = [0u8; 32];
+    for (i, out) in k.iter_mut().enumerate() {
+        *out = (nib(b[2 * i]) << 4) | nib(b[2 * i + 1]);
+    }
+    Some(k)
 }
 
 pub fn hub_ip() -> [u8; 4] {

@@ -114,6 +114,8 @@ label { display: inline-flex; align-items: center; gap: 4px; margin: 6px 0; }
   font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 22px; letter-spacing: 1px;
   background: var(--panel-2); padding: 10px 14px; border-radius: 8px; text-align: center; margin: 4px 0 10px;
 }
+.pubkey { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.pubkey code { word-break: break-all; }
 .fp { font-family: ui-monospace, Consolas, monospace; }
 .steps li { margin: 6px 0; line-height: 1.5; }
 .empty { text-align: center; margin-top: 12vh; }
