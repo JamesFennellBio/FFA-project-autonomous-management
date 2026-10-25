@@ -1,20 +1,23 @@
 # Website
 
 - Plain HTML/CSS/JS, no build step: `index.html`, `style.css`, `site.js`
+- Style: Apple product-page layout (top nav, big headlines, light / grey / black sections), green accent
 - Preview: `python3 -m http.server 8765 --directory website` → http://localhost:8765
 - Farm / Lab
-  - switch in the dock
+  - switch in the top nav
   - link straight to one: `?mode=farm` or `?mode=lab`
   - text with two versions = `data-v="farm"` / `data-v="lab"` spans
-  - whole window for one only = title bar "Farm only" / "Lab only" in edit mode
+  - whole section for one only = "Farm only" / "Lab only" at the section's top left in edit mode
+- Nav links are made from the sections (`data-nav` = link text)
+- Light / dark follows the device setting; the black sections stay black
 - Editing
-  - the pencil in the dock, Ctrl/⌘ E, or `?edit`
+  - the pencil in the nav, Ctrl/⌘ E, or `?edit`
   - click text to type; Enter = done, Shift+Enter = new line
   - click a photo box → file, link or remove
   - focus a button → "Link address…"
   - hover a card / row → ← move, ⧉ copy, ✕ delete
-  - title bar → ↑ ↓ move window, Farm/Lab only, Hide
-  - panel → accent colour, wallpaper
+  - section top left → ↑ ↓ move section, Farm/Lab only, Hide
+  - panel → accent colour
   - edits autosave in this browser only
   - Export page → downloads `index.html` → replace `website/index.html`, commit
   - photos from your computer get shrunk and stored inside `index.html`; big sets → put files in `website/img/` and use `img/name.jpg` as the link

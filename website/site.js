@@ -1,17 +1,18 @@
-// Site behaviour: Farm/Lab switch, windows, dock, demo widget and edit mode.
+// Site behaviour: Farm/Lab switch, top nav, scroll fade-ins, demo widget and edit mode.
 // Edit mode changes the page itself; "Export page" downloads it as index.html.
 (() => {
   "use strict";
 
   const root = document.documentElement;
-  const desk = document.getElementById("desk");
-  const dock = document.querySelector(".dock");
+  const page = document.getElementById("page");
+  const gnav = document.querySelector(".gnav");
+  const links = gnav.querySelector(".gnav-links");
+  const editBtn = gnav.querySelector("[data-edit]");
   const DRAFT_KEY = "farmlab-site-draft";
-  const THEME_KEY = "farmlab-site-theme";
 
   // Snapshot before anything changes the page, so a saved draft is only
   // restored on top of the same page it was made from.
-  const base = hash(desk.innerHTML + rootState().join("|"));
+  const base = hash(page.innerHTML + rootState().join("|"));
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -25,7 +26,7 @@
     return (h >>> 0).toString(36);
   }
   function rootState() {
-    return [root.dataset.mode, root.dataset.wall, root.style.getPropertyValue("--accent")];
+    return [root.dataset.mode, root.style.getPropertyValue("--accent")];
   }
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const h = (tag, attrs = {}, ...kids) => {
@@ -37,11 +38,6 @@
     }
     el.append(...kids);
     return el;
-  };
-  const svg = (paths) => {
-    const t = document.createElement("template");
-    t.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
-    return t.content.firstChild;
   };
 
   /* ---------- Farm / Lab ---------- */
@@ -55,6 +51,7 @@
       history.replaceState(null, "", u);
     }
     resetDemo();
+    buildNav();
     save();
   }
   document.addEventListener("click", (e) => {
@@ -62,84 +59,42 @@
     if (b) setMode(b.dataset.setMode);
   });
 
-  /* ---------- Light / dark ---------- */
-  const savedTheme = store.get(THEME_KEY);
-  if (savedTheme) root.dataset.theme = savedTheme;
-  function toggleTheme() {
-    const dark = root.dataset.theme
-      ? root.dataset.theme === "dark"
-      : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
-    store.set(THEME_KEY, root.dataset.theme);
-  }
-
-  /* ---------- Windows and dock ---------- */
-  const DOCK_ICONS = {
-    welcome: ["i-green", '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>'],
-    features: ["i-teal", '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'],
-    how: ["i-forest", '<circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="6" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M7 11l10-4M7 13l10 4"/>'],
-    recipes: ["i-lime", '<path d="M9 4h6v4a2 2 0 1 1 0 4v4h-4a2 2 0 1 0-4 0H4V10h4a2 2 0 1 0 0-4H4"/>'],
-    security: ["i-dark", '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10l3 2-3 2M12 15h5"/>'],
-    hardware: ["i-sage", '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>'],
-    photos: ["i-teal", '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 8"/>'],
-    contact: ["i-green", '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'],
-  };
-  const FALLBACK_ICON = ["i-green", '<rect x="4" y="4" width="16" height="16" rx="3"/>'];
-
-  function buildDock() {
-    dock.replaceChildren();
-    for (const win of $$(".win", desk)) {
-      if (win.hasAttribute("data-hidden") && !editing) continue;
-      const [cls, paths] = DOCK_ICONS[win.id] || FALLBACK_ICON;
-      const label = win.dataset.dock || win.querySelector(".wtitle")?.textContent || win.id;
-      const item = h("button", { type: "button", class: "dock-item" + (win.classList.contains("closed") ? " off" : ""), "aria-label": label, "data-for": win.id },
-        h("span", { class: "app " + cls }, svg(paths)),
-        h("span", { class: "dock-tip" }, label));
-      item.addEventListener("click", () => {
-        win.classList.remove("closed", "collapsed");
-        item.classList.remove("off");
-        win.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-      dock.append(item);
+  /* ---------- Top nav ---------- */
+  // Links are made from the sections, so moving or hiding one in edit mode updates the nav.
+  function buildNav() {
+    links.replaceChildren();
+    for (const sec of $$(".sec", page)) {
+      if (!editing && (sec.hasAttribute("data-hidden") || (sec.dataset.only && sec.dataset.only !== root.dataset.mode))) continue;
+      links.append(h("a", { href: "#" + sec.id }, sec.dataset.nav || sec.id));
     }
-    // The dock is the only bar: the Farm/Lab switch, light/dark and Edit live here too.
-    const mode = root.dataset.mode;
-    dock.append(h("span", { class: "dock-sep" }),
-      h("div", { class: "seg dock-seg dock-ctl", role: "radiogroup", "aria-label": "Show the site for" },
-        h("button", { type: "button", role: "radio", "data-set-mode": "farm", "aria-checked": String(mode === "farm") }, "Farm"),
-        h("button", { type: "button", role: "radio", "data-set-mode": "lab", "aria-checked": String(mode === "lab") }, "Lab")),
-      h("button", { type: "button", class: "dock-item dock-ctl", "aria-label": "Light or dark", onclick: toggleTheme },
-        h("span", { class: "app i-sage" }, svg('<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>')),
-        h("span", { class: "dock-tip" }, "Light / dark")),
-      h("button", { type: "button", class: "dock-item dock-ctl", "aria-label": "Edit page", "aria-pressed": String(editing), title: "Edit page (Ctrl/⌘ E)", onclick: () => toggleEdit() },
-        h("span", { class: "app i-dark" }, svg('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>')),
-        h("span", { class: "dock-tip" }, editing ? "Stop editing" : "Edit page")));
   }
-
-  desk.addEventListener("click", (e) => {
-    const light = e.target.closest(".l");
-    if (!light) return;
-    const win = light.closest(".win");
-    if (light.classList.contains("l-close")) {
-      win.classList.add("closed");
-      dock.querySelector(`[data-for="${win.id}"]`)?.classList.add("off");
-    } else if (light.classList.contains("l-min")) {
-      win.classList.toggle("collapsed");
-    } else {
-      win.classList.toggle("zoomed");
-    }
+  links.addEventListener("click", (e) => {
+    if (e.target.closest("a")) setMenu(false);
   });
+  const menuBtn = gnav.querySelector(".menu-btn");
+  function setMenu(open) {
+    gnav.classList.toggle("open", open);
+    menuBtn.setAttribute("aria-expanded", String(open));
+  }
+  menuBtn.addEventListener("click", () => setMenu(!gnav.classList.contains("open")));
+  editBtn.addEventListener("click", () => toggleEdit());
 
-  // Dock magnification, mouse only.
-  if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
-    dock.addEventListener("mousemove", (e) => {
-      for (const it of $$(".dock-item", dock)) {
-        const r = it.getBoundingClientRect();
-        const d = Math.abs(e.clientX - (r.left + r.width / 2));
-        it.style.setProperty("--s", (1 + 0.45 * Math.max(0, 1 - d / 110)).toFixed(3));
+  /* ---------- Fade in on scroll ---------- */
+  const seen = "IntersectionObserver" in window
+    ? new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (en.isIntersecting) { en.target.classList.add("in"); seen.unobserve(en.target); }
       }
-    });
-    dock.addEventListener("mouseleave", () => $$(".dock-item", dock).forEach((it) => it.style.removeProperty("--s")));
+    }, { rootMargin: "0px 0px -8% 0px" })
+    : null;
+  function reveal() {
+    if (!seen) return;
+    root.classList.add("js");
+    for (const el of $$(".sec .wrap > *, .bento > *, .gallery > *, .stats > *", page)) {
+      if (el.classList.contains("rv")) continue;
+      el.classList.add("rv");
+      seen.observe(el);
+    }
   }
 
   /* ---------- Demo widget ---------- */
@@ -196,7 +151,7 @@
   function toggleEdit(on = !editing) {
     editing = on;
     document.body.classList.toggle("editing", on);
-    for (const el of $$("[data-e]", desk)) {
+    for (const el of $$("[data-e]", page)) {
       if (on) {
         el.contentEditable = "true";
         el.spellcheck = true;
@@ -215,7 +170,9 @@
       hud = null;
       save();
     }
-    buildDock();
+    editBtn.setAttribute("aria-pressed", String(on));
+    editBtn.setAttribute("aria-label", on ? "Stop editing" : "Edit page");
+    buildNav();
   }
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") {
@@ -227,9 +184,9 @@
   });
 
   function addTools() {
-    $$(".edit-ui", desk).forEach((n) => n.remove());
-    for (const win of $$(".win", desk)) {
-      const only = h("select", { "aria-label": "Show this window on", title: "Show this window on" },
+    $$(".edit-ui", page).forEach((n) => n.remove());
+    for (const win of $$(".sec", page)) {
+      const only = h("select", { "aria-label": "Show this section on", title: "Show this section on" },
         h("option", { value: "" }, "Farm + Lab"), h("option", { value: "farm" }, "Farm only"), h("option", { value: "lab" }, "Lab only"));
       only.value = win.dataset.only || "";
       only.addEventListener("change", () => {
@@ -245,18 +202,18 @@
       });
       const move = (dir) => {
         const other = dir < 0 ? win.previousElementSibling : win.nextElementSibling;
-        if (!other) return;
+        if (!other?.classList.contains("sec")) return;
         if (dir < 0) other.before(win); else other.after(win);
-        win.scrollIntoView({ behavior: "smooth", block: "center" });
-        buildDock();
+        win.scrollIntoView({ behavior: "smooth", block: "start" });
+        buildNav();
         save();
       };
-      win.querySelector(".titlebar").append(h("div", { class: "win-tools edit-ui" },
+      win.append(h("div", { class: "sec-tools edit-ui" },
         h("button", { type: "button", class: "tool", title: "Move up", onclick: () => move(-1) }, "↑"),
         h("button", { type: "button", class: "tool", title: "Move down", onclick: () => move(1) }, "↓"),
         only, hide));
     }
-    $$("[data-list] > *", desk).forEach(addItemTools);
+    $$("[data-list] > *", page).forEach(addItemTools);
   }
 
   function addItemTools(item) {
@@ -272,7 +229,7 @@
         save();
       } }, "⧉"),
       h("button", { type: "button", class: "tool", title: "Delete", onclick: () => {
-        if (list.children.length <= 1) return toast("Keep at least one. Hide the window instead.");
+        if (list.children.length <= 1) return toast("Keep at least one. Hide the section instead.");
         item.remove();
         save();
       } }, "✕"));
@@ -281,7 +238,7 @@
   }
 
   // Plain-text paste, and Enter finishes a line (Shift+Enter for a new line).
-  desk.addEventListener("paste", onPaste);
+  page.addEventListener("paste", onPaste);
   function onPaste(e) {
     if (!editing || !e.target.closest("[data-e]")) return;
     e.preventDefault();
@@ -293,18 +250,18 @@
     if (e.shiftKey) document.execCommand("insertLineBreak");
     else e.target.blur();
   });
-  desk.addEventListener("input", () => save());
+  page.addEventListener("input", () => save());
 
   // In edit mode links don't navigate; a chip under the focused link edits its address.
   let chip = null;
   document.addEventListener("click", (e) => {
     if (!editing) return;
-    const a = e.target.closest("#desk a");
-    if (a && a.matches("#desk a")) e.preventDefault();
-    const img = e.target.closest("#desk [data-img]");
+    const a = e.target.closest("#page a");
+    if (a) e.preventDefault();
+    const img = e.target.closest("#page [data-img]");
     if (img && !e.target.closest(".edit-ui")) imageSheet(img);
   }, true);
-  desk.addEventListener("focusin", (e) => {
+  page.addEventListener("focusin", (e) => {
     const a = editing && e.target.closest("a[data-e]");
     chip?.remove();
     if (!a) return;
@@ -314,7 +271,7 @@
     chip.addEventListener("click", () => linkSheet(a));
     document.body.append(chip);
   });
-  desk.addEventListener("focusout", () => {
+  page.addEventListener("focusout", () => {
     const mine = chip;
     setTimeout(() => {
       // Focus may have moved to another link, which made its own chip.
@@ -403,24 +360,16 @@
     custom.addEventListener("input", () => pick(custom.value));
     swatches.append(h("label", { class: "swatch swatch-custom", title: "Custom colour" }, custom));
 
-    const wall = h("select", { "aria-label": "Wallpaper" },
-      h("option", { value: "auto" }, "Auto (Meadow for Farm, Fern for Lab)"),
-      h("option", { value: "meadow" }, "Meadow"), h("option", { value: "fern" }, "Fern"), h("option", { value: "night" }, "Night"));
-    wall.value = root.dataset.wall || "auto";
-    wall.addEventListener("change", () => { root.dataset.wall = wall.value; save(); });
-
     const seg = h("div", { class: "seg", role: "radiogroup", "aria-label": "Editing the" },
       h("button", { type: "button", role: "radio", "data-set-mode": "farm", "aria-checked": String(root.dataset.mode === "farm") }, "Farm text"),
       h("button", { type: "button", role: "radio", "data-set-mode": "lab", "aria-checked": String(root.dataset.mode === "lab") }, "Lab text"));
 
     const panel = h("aside", { class: "hud edit-ui", "aria-label": "Page editor" },
-      h("div", { class: "hud-head" },
-        h("div", { class: "lights" }, h("button", { type: "button", class: "l l-close", "aria-label": "Stop editing", onclick: () => toggleEdit(false) }), h("span", { class: "l l-min" }), h("span", { class: "l l-zoom" })),
-        "Edit page"),
+      h("div", { class: "hud-head" }, "Edit page",
+        h("button", { type: "button", class: "hud-x", "aria-label": "Stop editing", onclick: () => toggleEdit(false) }, "✕")),
       h("h4", {}, "Editing"), seg,
       h("h4", {}, "Accent colour"), swatches,
-      h("h4", {}, "Wallpaper"), wall,
-      h("p", { class: "hud-hint" }, "Click text to change it, a photo to replace it. Hover a card to copy or delete it. Title bars: move, Farm/Lab only, hide."),
+      h("p", { class: "hud-hint" }, "Click text to change it, a photo to replace it. Hover a card to copy or delete it. Top right of each section: move, Farm/Lab only, hide."),
       h("p", { class: "hud-hint" }, "Saved in this browser only. Export page → replace website/index.html with the download."),
       h("div", { class: "hud-row" },
         h("button", { type: "button", class: "hud-btn", onclick: resetDraft }, "Undo all"),
@@ -450,10 +399,11 @@
   function cleanCopy(el) {
     const c = el.cloneNode(true);
     c.querySelectorAll(".edit-ui").forEach((n) => n.remove());
-    for (const n of [c, ...c.querySelectorAll("[contenteditable], [spellcheck], .win")]) {
+    for (const n of [c, ...c.querySelectorAll("[contenteditable], [spellcheck], .rv")]) {
       n.removeAttribute("contenteditable");
       n.removeAttribute("spellcheck");
-      n.classList?.remove("closed", "collapsed", "zoomed");
+      n.classList.remove("rv", "in");
+      if (!n.classList.length) n.removeAttribute("class");
     }
     return c;
   }
@@ -465,7 +415,7 @@
     saveTimer = setTimeout(() => {
       store.set(DRAFT_KEY, JSON.stringify({
         base,
-        desk: cleanCopy(desk).innerHTML,
+        page: cleanCopy(page).innerHTML,
         root: rootState(),
       }));
     }, 300);
@@ -475,9 +425,8 @@
     let d;
     try { d = JSON.parse(store.get(DRAFT_KEY) || "null"); } catch { d = null; }
     if (!d || d.base !== base) return false;
-    desk.innerHTML = d.desk;
-    const [, wall, accent] = d.root || [];
-    if (wall) root.dataset.wall = wall;
+    page.innerHTML = d.page;
+    const [, accent] = d.root || [];
     if (accent) root.style.setProperty("--accent", accent);
     return true;
   }
@@ -492,10 +441,14 @@
 
   function exportPage() {
     const doc = root.cloneNode(true);
-    doc.querySelector("#desk").replaceWith(cleanCopy(desk));
+    doc.querySelector("#page").replaceWith(cleanCopy(page));
     doc.querySelectorAll(".edit-ui, .toast").forEach((n) => n.remove());
-    doc.querySelector(".dock").replaceChildren();
-    doc.removeAttribute("data-theme");
+    doc.querySelector(".gnav-links").replaceChildren();
+    doc.querySelector(".gnav").classList.remove("open");
+    doc.querySelector("[data-edit]").removeAttribute("aria-pressed");
+    doc.querySelector("[data-edit]").setAttribute("aria-label", "Edit page");
+    doc.classList.remove("js");
+    if (!doc.classList.length) doc.removeAttribute("class");
     doc.querySelector("body").removeAttribute("class");
     const html = "<!doctype html>\n" + doc.outerHTML + "\n";
     const a = h("a", { href: URL.createObjectURL(new Blob([html], { type: "text/html" })), download: "index.html" });
@@ -516,7 +469,7 @@
   const restored = restoreDraft();
   const params = new URLSearchParams(location.search);
   setMode(params.get("mode") || root.dataset.mode, { url: false });
-  buildDock();
+  reveal();
   if (restored) {
     toast("Your unsaved edits are back.", [
       h("button", { type: "button", onclick: () => toggleEdit(true) }, "Keep editing"),
