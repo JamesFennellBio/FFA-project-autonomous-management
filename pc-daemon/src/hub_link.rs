@@ -406,12 +406,23 @@ mod tests {
         s
     }
 
-    async fn is_closed(s: &mut TcpStream) -> bool {
+    /// True if the server closes `s` within `wait`. Closing is checked with
+    /// a generous wait (a busy CI runner can be slow to drop a socket), and
+    /// staying open with a short one.
+    async fn closed_within(s: &mut TcpStream, wait: Duration) -> bool {
         let mut b = [0u8; 1];
         matches!(
-            tokio::time::timeout(Duration::from_millis(300), s.read(&mut b)).await,
+            tokio::time::timeout(wait, s.read(&mut b)).await,
             Ok(Ok(0)) | Ok(Err(_))
         )
+    }
+
+    async fn is_closed(s: &mut TcpStream) -> bool {
+        closed_within(s, Duration::from_secs(5)).await
+    }
+
+    async fn stays_open(s: &mut TcpStream) -> bool {
+        !closed_within(s, Duration::from_millis(300)).await
     }
 
     #[tokio::test]
@@ -428,7 +439,7 @@ mod tests {
             is_closed(&mut first).await,
             "oldest unproven connection evicted"
         );
-        assert!(!is_closed(&mut others[MAX_CONNECTIONS - 1]).await);
+        assert!(stays_open(&mut others[MAX_CONNECTIONS - 1]).await);
     }
 
     #[tokio::test]
@@ -463,7 +474,7 @@ mod tests {
             junks.push(junk(addr, 40 + i).await);
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        assert!(!is_closed(&mut hub).await, "verified hub keeps its slot");
+        assert!(stays_open(&mut hub).await, "verified hub keeps its slot");
     }
 
     #[test]

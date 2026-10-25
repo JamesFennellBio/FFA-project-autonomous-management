@@ -274,7 +274,11 @@ impl HubClient {
     /// session or the current one has used its 10 messages / 1 hour.
     async fn ensure_session(&self, g: &mut Inner, buf: &mut [u8]) -> Result<(), MobileError> {
         self.ensure_socket(g).await?;
-        if !g.core.needs_handshake(self.now()) && g.core.session().is_some() {
+        // Look at the session itself: NodeCore::needs_handshake says false
+        // while an unanswered HELLO is under 5 s old, even if the current
+        // session is used up (e.g. right after a request timed out).
+        let now = self.now();
+        if g.core.session().is_some_and(|s| !s.needs_rekey(now)) {
             return Ok(());
         }
         for _ in 0..TRIES {

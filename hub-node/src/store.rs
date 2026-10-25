@@ -250,9 +250,13 @@ mod tests {
             ts: now,
         })
         .unwrap();
-        let h = s.history(1, 0, now - 3600, 60).unwrap();
-        assert_eq!(h.len(), 1, "all in one bucket");
-        assert_eq!(h[0].1, 20, "averaged");
+        // 1-hour buckets. The three rows can still straddle a bucket edge
+        // if the clock ticks over between them, so allow two buckets.
+        let h = s.history(1, 0, now - 7200, 2).unwrap();
+        assert!(!h.is_empty() && h.len() <= 2, "{h:?}");
+        if h.len() == 1 {
+            assert_eq!(h[0].1, 20, "averaged");
+        }
         assert!(s.history(1, 1, now - 3600, 60).unwrap().is_empty());
         let ev = s.events(None, 10).unwrap();
         assert_eq!(ev.len(), 1);

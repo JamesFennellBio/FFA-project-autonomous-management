@@ -242,7 +242,7 @@
 | `mobile/core/src/lib.rs` | 125 | `expected_hub_key` (hex), if given, is the only hub |
 | `mobile/core/src/lib.rs` | 238 | sealed under the current session; this counts |
 | `mobile/core/src/lib.rs` | 273 | runs the signed X25519 handshake when there's no |
-| `mobile/core/src/lib.rs` | 328 | AEAD + replay check. Anything that fails is dropped. |
+| `mobile/core/src/lib.rs` | 332 | AEAD + replay check. Anything that fails is dropped. |
 | `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
 | `node-sim/src/main.rs` | 128 | pinned hub key, same as FFA_HUB_KEY on the ESP32. |

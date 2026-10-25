@@ -18,8 +18,13 @@ const PHONE_ID: u16 = 7;
 
 /// Accepts the phone on its second pairing request (as if someone clicked
 /// Approve in between), then echoes every request. With `drop_first`, the
-/// first request is ignored so the client has to retry.
+/// first request is ignored so the client has to retry. HELLOs whose number
+/// (1-based) is in `drop_hellos` get no reply.
 async fn mini_hub(drop_first: bool) -> SocketAddr {
+    mini_hub_with(drop_first, &[]).await
+}
+
+async fn mini_hub_with(drop_first: bool, drop_hellos: &'static [usize]) -> SocketAddr {
     let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let addr = sock.local_addr().unwrap();
     tokio::spawn(async move {
@@ -29,6 +34,7 @@ async fn mini_hub(drop_first: bool) -> SocketAddr {
         let mut phone: Option<[u8; 32]> = None;
         let mut sessions = PeerSessions::new();
         let mut dropped = !drop_first;
+        let mut hellos = 0;
         let mut buf = vec![0u8; 2048];
         loop {
             let (n, from) = sock.recv_from(&mut buf).await.unwrap();
@@ -45,6 +51,10 @@ async fn mini_hub(drop_first: bool) -> SocketAddr {
                     pairing::pair_accept(&identity, &pk, PHONE_ID).to_vec()
                 }
                 FrameType::Hello => {
+                    hellos += 1;
+                    if drop_hellos.contains(&hellos) {
+                        continue;
+                    }
                     let mut rand = [0u8; 48];
                     uplink::getrandom(&mut rand).unwrap();
                     sessions
@@ -150,4 +160,24 @@ async fn a_saved_pairing_is_used_without_pairing_again() {
     let again = HubClient::new(seed, addr.to_string(), Some(p.clone()), None).unwrap();
     assert_eq!(again.pairing().await, Some(p));
     assert!(again.request(r#"{"type":"info"}"#.into()).await.is_ok());
+}
+
+#[tokio::test]
+async fn recovers_after_a_rekey_times_out() {
+    // HELLO 1 starts the first session; HELLOs 2-4 (the rekey after 10
+    // requests, tried 3 times) go unanswered; HELLO 5 works again.
+    let addr = mini_hub_with(false, &[2, 3, 4]).await;
+    let c = client(addr, None);
+    c.pair(15).await.unwrap();
+    for _ in 0..10 {
+        c.request(r#"{"type":"info"}"#.into()).await.unwrap();
+    }
+    assert!(matches!(
+        c.request(r#"{"type":"info"}"#.into()).await,
+        Err(MobileError::Timeout)
+    ));
+    // Straight away, while the last HELLO is still "pending": must handshake
+    // again rather than try the used-up session.
+    let r = c.request(r#"{"type":"info"}"#.into()).await;
+    assert!(r.is_ok(), "{r:?}");
 }
