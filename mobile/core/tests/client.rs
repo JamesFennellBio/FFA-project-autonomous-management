@@ -9,7 +9,7 @@ use std::time::Instant;
 use crypto_sharecrate::crypto::identity::Identity;
 use crypto_sharecrate::crypto::{pairing, responder::PeerSessions};
 use crypto_sharecrate::frame::FrameType;
-use ffa_mobile_core::{HubClient, MobileError, new_identity_seed};
+use farmlab_mobile_core::{HubClient, MobileError, new_identity_seed};
 use serde_json::{Value, json};
 use tokio::net::UdpSocket;
 

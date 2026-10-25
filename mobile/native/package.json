@@ -1,8 +1,8 @@
 {
-  "name": "ffa-hub-native",
+  "name": "farmlab-hub-native",
   "version": "0.1.0",
   "private": true,
-  "description": "Rust hub link (mobile/core) for the FFA phone app, as a React Native turbo module",
+  "description": "Rust hub link (mobile/core) for the farm/lab phone app, as a React Native turbo module",
   "main": "src/index.tsx",
   "types": "src/index.tsx",
   "react-native": "src/index.tsx",
@@ -21,11 +21,11 @@
     "uniffi-bindgen-react-native": "0.31.0-6"
   },
   "codegenConfig": {
-    "name": "RNFfaHubNativeSpec",
+    "name": "RNFarmlabHubNativeSpec",
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.ffahubnative"
+      "javaPackageName": "com.farmlabhubnative"
     }
   }
 }

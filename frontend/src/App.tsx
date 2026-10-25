@@ -37,7 +37,7 @@ export default function App() {
         <div className="brand">
           <span className="logo">🌱</span>
           <div>
-            <div className="brand-name">FFA Farm &amp; Lab</div>
+            <div className="brand-name">Autonomous Farm &amp; Lab</div>
             <div className="brand-sub">Autonomous management</div>
           </div>
         </div>

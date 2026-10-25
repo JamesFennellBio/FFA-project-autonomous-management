@@ -18,9 +18,9 @@
 
 ## Test the hub side without a phone
 - Hub + PC daemon running (main README)
-- `cargo run -p ffa-mobile-core --example phone -- --hub 127.0.0.1:7301 --state /tmp/phone.json pair`
+- `cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 --state /tmp/phone.json pair`
 - Approve "Phone app" on the desktop Pairing page
-- `cargo run -p ffa-mobile-core --example phone -- --hub 127.0.0.1:7301 --state /tmp/phone.json ask '{"type":"channels"}'`
+- `cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 --state /tmp/phone.json ask '{"type":"channels"}'`
 - Request types: top of `hub-node/src/hub/app.rs`
 
 ## Requirements
@@ -48,10 +48,10 @@
 
 ## If ubrn complains about missing turbo-module files
 - `mobile/native` only has the ubrn config + `package.json`; ubrn generates the rest
-- Fallback: `cd mobile && npx create-react-native-library@latest ffa-hub-native-scaffold`
+- Fallback: `cd mobile && npx create-react-native-library@latest farmlab-hub-native-scaffold`
   - pick "Turbo module" with C++
   - copy `native/ubrn.config.yaml` in, set `rust.directory` to `../core`
-  - point `ffa-hub-native` in `app/package.json` at the new folder
+  - point `farmlab-hub-native` in `app/package.json` at the new folder
 
 ## Using it
 - Same Wi-Fi as the hub
@@ -65,7 +65,7 @@
 - Lost phone: unpair under Paired phones on desktop
 
 ## Status
-- Tested: `cargo test -p ffa-mobile-core`, hub tests, PC tests
+- Tested: `cargo test -p farmlab-mobile-core`, hub tests, PC tests
 - TypeScript type-checked in CI only
 - Not yet run: native build, the app on a real phone
 - Most likely to need fixes: ubrn config, generated binding names in `app/src/hub/native.ts`

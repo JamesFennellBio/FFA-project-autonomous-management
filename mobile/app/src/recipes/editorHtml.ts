@@ -3,7 +3,7 @@
 // It never makes code: the blocks turn into the hub's recipe JSON (see
 // hub-node/src/recipes.rs), which the hub checks again before saving.
 //
-// RN -> page:  window.FFA_INIT = { sensors, outputs, recipe } (before load)
+// RN -> page:  window.FARMLAB_INIT = { sensors, outputs, recipe } (before load)
 // page -> RN:  { type: "recipe", when, then, otherwise } or { type: "error", message }
 //              after every change.
 
@@ -32,7 +32,7 @@ export type EditorMessage =
 
 const EDITOR_JS = String.raw`
 (function () {
-  const init = window.FFA_INIT;
+  const init = window.FARMLAB_INIT;
   const post = (m) => window.ReactNativeWebView.postMessage(JSON.stringify(m));
   const key = (n, c) => n + ":" + c;
   const byKey = {};
@@ -54,7 +54,7 @@ const EDITOR_JS = String.raw`
     return all.map((s) => [s.label + (s.unit ? " (" + s.unit + ")" : ""), key(s.node, s.channel)]);
   };
 
-  Blockly.Blocks["ffa_recipe"] = {
+  Blockly.Blocks["farmlab_recipe"] = {
     init() {
       this.appendValueInput("WHEN").setCheck("Cond").appendField("when");
       this.appendStatementInput("THEN").setCheck("Action").appendField("do");
@@ -64,7 +64,7 @@ const EDITOR_JS = String.raw`
       this.setTooltip("Runs 'do' once when the condition becomes true, and 'otherwise' once when it stops being true.");
     },
   };
-  Blockly.Blocks["ffa_compare"] = {
+  Blockly.Blocks["farmlab_compare"] = {
     init() {
       this.appendDummyInput()
         .appendField(new Blockly.FieldDropdown(options("sensors", "(no sensors yet)")), "SENSOR")
@@ -74,7 +74,7 @@ const EDITOR_JS = String.raw`
       this.setColour(210);
     },
   };
-  for (const [type, word] of [["ffa_and", "and"], ["ffa_or", "or"]]) {
+  for (const [type, word] of [["farmlab_and", "and"], ["farmlab_or", "or"]]) {
     Blockly.Blocks[type] = {
       init() {
         this.appendValueInput("A").setCheck("Cond");
@@ -85,14 +85,14 @@ const EDITOR_JS = String.raw`
       },
     };
   }
-  Blockly.Blocks["ffa_not"] = {
+  Blockly.Blocks["farmlab_not"] = {
     init() {
       this.appendValueInput("A").setCheck("Cond").appendField("not");
       this.setOutput(true, "Cond");
       this.setColour(210);
     },
   };
-  Blockly.Blocks["ffa_set"] = {
+  Blockly.Blocks["farmlab_set"] = {
     init() {
       this.appendDummyInput()
         .appendField("turn")
@@ -103,7 +103,7 @@ const EDITOR_JS = String.raw`
       this.setColour(30);
     },
   };
-  Blockly.Blocks["ffa_alert"] = {
+  Blockly.Blocks["farmlab_alert"] = {
     init() {
       this.appendDummyInput().appendField("send alert").appendField(new Blockly.FieldTextInput("Check the greenhouse"), "TEXT");
       this.setPreviousStatement(true, "Action");
@@ -134,7 +134,7 @@ const EDITOR_JS = String.raw`
   const workspace = Blockly.inject("blockly", {
     toolbox: {
       kind: "flyoutToolbox",
-      contents: ["ffa_compare", "ffa_and", "ffa_or", "ffa_not", "ffa_set", "ffa_alert"].map((type) => ({ kind: "block", type })),
+      contents: ["farmlab_compare", "farmlab_and", "farmlab_or", "farmlab_not", "farmlab_set", "farmlab_alert"].map((type) => ({ kind: "block", type })),
     },
     renderer: "zelos",
     trashcan: true,
@@ -148,11 +148,11 @@ const EDITOR_JS = String.raw`
       case "compare": {
         remember("sensors", c.node, c.channel);
         const s = byKey[key(c.node, c.channel)];
-        return { type: "ffa_compare", fields: { SENSOR: key(c.node, c.channel), OP: c.op, VALUE: c.value / s.scale } };
+        return { type: "farmlab_compare", fields: { SENSOR: key(c.node, c.channel), OP: c.op, VALUE: c.value / s.scale } };
       }
-      case "and": return chain(c.all, "ffa_and");
-      case "or": return chain(c.any, "ffa_or");
-      case "not": return { type: "ffa_not", inputs: { A: { block: condState(c.cond) } } };
+      case "and": return chain(c.all, "farmlab_and");
+      case "or": return chain(c.any, "farmlab_or");
+      case "not": return { type: "farmlab_not", inputs: { A: { block: condState(c.cond) } } };
     }
   }
   function chain(list, type) {
@@ -166,9 +166,9 @@ const EDITOR_JS = String.raw`
       let s;
       if (a.type === "set") {
         remember("outputs", a.node, a.channel);
-        s = { type: "ffa_set", fields: { OUTPUT: key(a.node, a.channel), STATE: a.value ? "1" : "0" } };
+        s = { type: "farmlab_set", fields: { OUTPUT: key(a.node, a.channel), STATE: a.value ? "1" : "0" } };
       } else {
-        s = { type: "ffa_alert", fields: { TEXT: a.text } };
+        s = { type: "farmlab_alert", fields: { TEXT: a.text } };
       }
       if (next) s.next = { block: next };
       next = s;
@@ -176,7 +176,7 @@ const EDITOR_JS = String.raw`
     return next;
   }
 
-  const top = { type: "ffa_recipe", x: 20, y: 20, inputs: {} };
+  const top = { type: "farmlab_recipe", x: 20, y: 20, inputs: {} };
   if (init.recipe) {
     top.inputs.WHEN = { block: condState(init.recipe.when) };
     const t = actionsState(init.recipe.then);
@@ -196,14 +196,14 @@ const EDITOR_JS = String.raw`
   function cond(b) {
     if (!b) throw new Error("Fill every empty slot in the 'when' part.");
     switch (b.type) {
-      case "ffa_compare": {
+      case "farmlab_compare": {
         const { node, channel, s } = sensorOf(b, "SENSOR");
         const value = Math.round(Number(b.getFieldValue("VALUE")) * (s ? s.scale : 1));
         return { type: "compare", node, channel, op: b.getFieldValue("OP"), value };
       }
-      case "ffa_and":
-      case "ffa_or": {
-        const kind = b.type === "ffa_and" ? "and" : "or";
+      case "farmlab_and":
+      case "farmlab_or": {
+        const kind = b.type === "farmlab_and" ? "and" : "or";
         const listKey = kind === "and" ? "all" : "any";
         const parts = [];
         for (const name of ["A", "B"]) {
@@ -214,7 +214,7 @@ const EDITOR_JS = String.raw`
         }
         return { type: kind, [listKey]: parts };
       }
-      case "ffa_not":
+      case "farmlab_not":
         return { type: "not", cond: cond(b.getInputTargetBlock("A")) };
     }
     throw new Error("Unknown block in the 'when' part.");
@@ -222,10 +222,10 @@ const EDITOR_JS = String.raw`
   function actions(first) {
     const out = [];
     for (let b = first; b; b = b.getNextBlock()) {
-      if (b.type === "ffa_set") {
+      if (b.type === "farmlab_set") {
         const { node, channel } = sensorOf(b, "OUTPUT");
         out.push({ type: "set", node, channel, value: Number(b.getFieldValue("STATE")) });
-      } else if (b.type === "ffa_alert") {
+      } else if (b.type === "farmlab_alert") {
         out.push({ type: "alert", text: String(b.getFieldValue("TEXT")).trim() });
       }
     }
@@ -233,7 +233,7 @@ const EDITOR_JS = String.raw`
   }
   function report() {
     try {
-      const r = workspace.getBlocksByType("ffa_recipe", false)[0];
+      const r = workspace.getBlocksByType("farmlab_recipe", false)[0];
       const when = cond(r.getInputTargetBlock("WHEN"));
       const then = actions(r.getInputTargetBlock("THEN"));
       const otherwise = actions(r.getInputTargetBlock("ELSE"));
@@ -282,7 +282,7 @@ export function editorHtml(dark: boolean): string {
 </body></html>`;
 }
 
-/** Script that sets window.FFA_INIT before the page's own scripts run. */
+/** Script that sets window.FARMLAB_INIT before the page's own scripts run. */
 export function editorInitScript(init: EditorInit): string {
-  return `window.FFA_INIT = ${JSON.stringify(init).replaceAll("</", "<\\/")}; true;`;
+  return `window.FARMLAB_INIT = ${JSON.stringify(init).replaceAll("</", "<\\/")}; true;`;
 }

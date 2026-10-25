@@ -5,7 +5,7 @@ type RawResponse = { ok: boolean; status: number; data: unknown };
 
 declare global {
   interface Window {
-    ffa?: { api: (method: string, path: string, body?: unknown) => Promise<RawResponse> };
+    farmlab?: { api: (method: string, path: string, body?: unknown) => Promise<RawResponse> };
   }
 }
 
@@ -16,8 +16,8 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (!window.ffa) throw new ApiError(0, "Run this inside the Electron app (npm run dev), not a plain browser.");
-  const r = await window.ffa.api(method, path, body);
+  if (!window.farmlab) throw new ApiError(0, "Run this inside the Electron app (npm run dev), not a plain browser.");
+  const r = await window.farmlab.api(method, path, body);
   if (!r.ok) {
     const msg = (r.data as { error?: string } | null)?.error ?? `HTTP ${r.status}`;
     throw new ApiError(r.status, msg);

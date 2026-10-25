@@ -48,7 +48,7 @@ async fn connection_task(mut controller: WifiController<'static>) {
 
 pub fn start(spawner: &Spawner, wifi: WIFI<'static>, net_seed: u64) -> Option<WifiLink> {
     if config::WIFI_SSID.is_empty() {
-        log::warn!("FFA_WIFI_SSID was not set at build time; Wi-Fi disabled");
+        log::warn!("FARMLAB_WIFI_SSID was not set at build time; Wi-Fi disabled");
         return None;
     }
     let mut controller = match WifiController::new(wifi, Default::default()) {

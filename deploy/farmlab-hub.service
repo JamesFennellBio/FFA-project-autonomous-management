@@ -1,26 +1,26 @@
 # systemd unit for the Pi hub.
 #   sudo cp target/aarch64-unknown-linux-gnu/release/hub-node /usr/local/bin/
-#   sudo cp deploy/ffa-hub.service /etc/systemd/system/
-#   sudo systemctl enable --now ffa-hub
+#   sudo cp deploy/farmlab-hub.service /etc/systemd/system/
+#   sudo systemctl enable --now farmlab-hub
 #
 # `systemctl stop` sends SIGINT, so the hub writes its RAM database to the
 # SD card before it exits.
 
 [Unit]
-Description=FFA farm/lab hub
+Description=Farm/lab hub
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/hub-node --config /etc/ffa-hub/hub.toml run
+ExecStart=/usr/local/bin/hub-node --config /etc/farmlab-hub/hub.toml run
 KillSignal=SIGINT
 TimeoutStopSec=30
 Restart=always
 RestartSec=5
 # Needs /dev/spidev0.0 and /dev/gpiomem for LoRa.
 SupplementaryGroups=spi gpio
-User=ffa
-StateDirectory=ffa-hub
+User=farmlab
+StateDirectory=farmlab-hub
 Environment=RUST_LOG=info
 
 [Install]

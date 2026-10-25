@@ -1,4 +1,4 @@
-# FFA Autonomous Farm & Lab Management
+# Autonomous Farm & Lab Management
 
 ## What it is
 - IoT farm / lab management system
@@ -46,13 +46,13 @@
 ## Run on one PC (no hardware)
 - `cargo build --workspace`
 - `cargo run -p pc-daemon` (copy the PC public key from the log)
-- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `pc_addr = "127.0.0.1:7400"`, `pc_public_key`, `data_dir = "/tmp/ffa-hub"`
+- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `pc_addr = "127.0.0.1:7400"`, `pc_public_key`, `data_dir = "/tmp/farmlab-hub"`
 - `cargo run -p hub-node -- --config /tmp/hub.toml init`
 - `cargo run -p hub-node -- --config /tmp/hub.toml`
 - `cd frontend && npm install && npm run dev`
 - `cargo run -p node-sim -- --state /tmp/sim1.json --pair --hub-key <hub public key>`
 - Approve the hub, then the node, on the Pairing page
-- Phone without a phone: `cargo run -p ffa-mobile-core --example phone -- --state /tmp/phone.json pair`, approve it, then `... ask '{"type":"channels"}'`
+- Phone without a phone: `cargo run -p farmlab-mobile-core --example phone -- --state /tmp/phone.json pair`, approve it, then `... ask '{"type":"channels"}'`
 
 ## Tests
 - `cargo test --workspace`

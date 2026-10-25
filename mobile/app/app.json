@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "FFA Farm",
-    "slug": "ffa-farm",
+    "name": "Farm & Lab",
+    "slug": "farmlab",
     "version": "0.1.0",
-    "scheme": "ffafarm",
+    "scheme": "farmlab",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "org.ffa.farm",
+      "bundleIdentifier": "org.farmlab.app",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "The app talks to your farm hub over the local Wi-Fi network."
       }
     },
     "android": {
-      "package": "org.ffa.farm"
+      "package": "org.farmlab.app"
     },
     "plugins": ["expo-router", "expo-secure-store"],
     "experiments": {

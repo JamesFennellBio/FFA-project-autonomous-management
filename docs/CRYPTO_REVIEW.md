@@ -16,6 +16,7 @@
 - Node RNG: SHA-256 hash-DRBG seeded from the C3 TRNG, `data-node/src/rng.rs`
 - All pure-Rust RustCrypto / dalek crates
 - Hand-rolled: only protocol framing, DRBG, HKDF labels
+- Labels (`FFA-HELLO-v1`, `FFA-HUB`, `FFA-DRBG`…) and flash magic `FFA1` keep the old name on purpose: renaming them changes every derived key, old seed phrases and pairings stop working
 
 ## Who trusts whom
 - Node (key A) pins hub key H at pairing; hub pins A after Approve
@@ -31,7 +32,7 @@
 - Next request: `PAIR_ACCEPT = 0x09 | node_id | pubH | Sig_H("FFA-PAIR-ACC-v1" ‖ pubA ‖ 0x09 ‖ node_id ‖ pubH)`
 - Signature covers pubA → accept for another device fails
 - Pinned keys (findings 03/17/12):
-  - `FFA_HUB_KEY` on nodes → only that hub (`NodeCore::with_expected_peer`, `WrongPeer`)
+  - `FARMLAB_HUB_KEY` on nodes → only that hub (`NodeCore::with_expected_peer`, `WrongPeer`)
   - closes the trust-on-first-use race
   - hub requires `pc_public_key` in hub.toml
   - saved pairing for a different key → dropped, re-pair with the pinned peer
@@ -90,7 +91,7 @@
 - Rate limits: shares hub's 50/s signature budget; 5 verified HELLOs / 10 s per phone; requests need a valid session
 
 ## Known weaknesses
-- Node pairing without `FFA_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
+- Node pairing without `FARMLAB_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
 - Keys at rest not encrypted:
   - node seed in plain flash at 0x9000
   - hub `identity.key`, PC `identity.key` / `api-token` = 0600 files
@@ -119,7 +120,7 @@
 ## Fixed after the Oct 24 2026 scan
 - 01 failsafe only re-armed by new session → any authenticated frame re-arms (`data-node/src/main.rs::contact`)
 - 02/08 pairing spam filled hub DB/RAM → live-only, never stored, 1/s, key table capped at 1024
-- 03/17 node TOFU race → optional `FFA_HUB_KEY` pin
+- 03/17 node TOFU race → optional `FARMLAB_HUB_KEY` pin
 - 04 unlimited TCP connections → 4-connection cap, first-frame + idle timeouts
 - 09 HELLO / PAIR CPU flood → per-node + global signature budgets
 - 10/18 "delivered" without proof → node sends encrypted `Ack`; queued→sent→acked
@@ -155,7 +156,7 @@
   - `unpair_clears_waiting_approval`, `pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`
   - phone port: `node_frames_on_the_phone_port_and_unknown_phones_are_dropped`, `phone_approves_only_nodes_that_are_asking`, `many_requests_rekey_and_keep_working`, `recipes_with_bad_targets_are_refused`
   - `recipes::tests::rejects_bad_shapes`
-- `cargo test -p ffa-mobile-core`: `a_pinned_hub_key_refuses_any_other_hub`, `pairs_then_keeps_working_across_rekeys`, `a_lost_reply_is_retried`
+- `cargo test -p farmlab-mobile-core`: `a_pinned_hub_key_refuses_any_other_hub`, `pairs_then_keeps_working_across_rekeys`, `a_lost_reply_is_retried`
 - `cargo test -p pc-daemon`: `phones_pair_with_their_own_ids_and_can_only_approve_nodes`
 
 ## Every CRYPTO-REVIEW location
@@ -213,7 +214,7 @@
 | `data-node/src/main.rs` | 261 | ephemeral key + nonce |
 | `data-node/src/main.rs` | 355 | true-random 256-bit seed from the RNG with ADC noise as |
 | `data-node/src/main.rs` | 371 | first boot, so make this node's long-term identity. |
-| `data-node/src/main.rs` | 382 | with FFA_HUB_KEY set at build time, the node only pairs |
+| `data-node/src/main.rs` | 382 | with FARMLAB_HUB_KEY set at build time, the node only pairs |
 | `data-node/src/rng.rs` | 1 | random numbers for keys and handshakes on the ESP32-C3. |
 | `data-node/src/storage.rs` | 10 | the Ed25519 seed is stored *unencrypted* in flash. Anyone |
 | `data-node/src/storage.rs` | 25 | long-term Ed25519 secret seed. |
@@ -245,7 +246,7 @@
 | `mobile/core/src/lib.rs` | 332 | AEAD + replay check. Anything that fails is dropped. |
 | `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
-| `node-sim/src/main.rs` | 128 | pinned hub key, same as FFA_HUB_KEY on the ESP32. |
+| `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
 | `node-sim/src/main.rs` | 162 | handshake randomness |
 | `pc-daemon/src/api/mod.rs` | 117 | the human approval step of pairing. A device's key is only |
 | `pc-daemon/src/api/mod.rs` | 127 | only keys that are in the pending list (they sent a signed |

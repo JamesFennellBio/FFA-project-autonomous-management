@@ -9,7 +9,7 @@ import {
   fingerprintOfSeed,
   newIdentitySeed,
   type PhonePairing,
-} from "ffa-hub-native";
+} from "farmlab-hub-native";
 
 export interface SavedPairing {
   phoneId: number;

@@ -1,11 +1,11 @@
 [package]
-name = "ffa-mobile-core"
+name = "farmlab-mobile-core"
 version.workspace = true
 edition.workspace = true
 description = "Phone side of the hub link (pairing, handshake, encrypted requests over UDP), called from the React Native app through uniffi"
 
 [lib]
-name = "ffa_mobile_core"
+name = "farmlab_mobile_core"
 # lib: tests and examples. cdylib: Android (.so). staticlib: iOS (.a).
 crate-type = ["lib", "cdylib", "staticlib"]
 

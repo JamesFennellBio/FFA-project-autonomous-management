@@ -2,7 +2,7 @@
 name = "crypto-sharecrate"
 version.workspace = true
 edition.workspace = true
-description = "Shared no_std protocol + crypto for the FFA farm/lab system (nodes, hub, PC daemon)"
+description = "Shared no_std protocol + crypto for the farm/lab system (nodes, hub, PC daemon)"
 
 [lib]
 name = "crypto_sharecrate"

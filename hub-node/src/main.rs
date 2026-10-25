@@ -32,9 +32,9 @@ use crate::radio::Inbound;
 use crate::store::Store;
 
 #[derive(Parser)]
-#[command(about = "FFA farm/lab hub (Raspberry Pi)")]
+#[command(about = "Farm/lab hub (Raspberry Pi)")]
 struct Args {
-    #[arg(long, default_value = "/etc/ffa-hub/hub.toml")]
+    #[arg(long, default_value = "/etc/farmlab-hub/hub.toml")]
     config: PathBuf,
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -119,7 +119,7 @@ fn print_fingerprint(cfg: &config::Config) -> Result<()> {
     println!("Hub fingerprint: {}", uplink::fingerprint_hex(&pk));
     println!("Hub public key:  {}", uplink::key_to_hex(&pk));
     println!(
-        "(build node firmware with FFA_HUB_KEY=<public key> so nodes only pair with this hub)"
+        "(build node firmware with FARMLAB_HUB_KEY=<public key> so nodes only pair with this hub)"
     );
     Ok(())
 }

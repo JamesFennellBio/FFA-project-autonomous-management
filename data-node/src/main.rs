@@ -379,13 +379,13 @@ async fn main(spawner: Spawner) -> ! {
         }
     };
     let mut core = NodeCore::new(&persist.seed, persist.pairing);
-    // CRYPTO-REVIEW: with FFA_HUB_KEY set at build time, the node only pairs
+    // CRYPTO-REVIEW: with FARMLAB_HUB_KEY set at build time, the node only pairs
     // with that hub (findings 03/17). Without it, pairing is trust-on-first-use.
     match config::hub_key() {
         Some(k) => {
             core = core.with_expected_peer(k);
             if persist.pairing.is_some() && !core.is_paired() {
-                log::warn!("saved pairing is for a different hub than FFA_HUB_KEY; pair again");
+                log::warn!("saved pairing is for a different hub than FARMLAB_HUB_KEY; pair again");
                 storage::save(
                     &mut flash,
                     &Persist {
@@ -397,12 +397,12 @@ async fn main(spawner: Spawner) -> ! {
             log::info!("pairing locked to hub {}", uplink_fp(&k).as_str());
         }
         None => log::warn!(
-            "FFA_HUB_KEY not set: this node will trust the first hub that answers while pairing"
+            "FARMLAB_HUB_KEY not set: this node will trust the first hub that answers while pairing"
         ),
     }
     let fp = core.fingerprint();
     log::info!(
-        "FFA data node, fingerprint {}",
+        "Farm/lab data node, fingerprint {}",
         core::str::from_utf8(&fp).unwrap_or("?")
     );
     match core.pairing() {
@@ -450,7 +450,7 @@ async fn main(spawner: Spawner) -> ! {
     };
     #[cfg(not(feature = "lora"))]
     if mode != TransportMode::Wifi {
-        log::warn!("FFA_TRANSPORT wants LoRa but this firmware was built without --features lora");
+        log::warn!("FARMLAB_TRANSPORT wants LoRa but this firmware was built without --features lora");
     }
 
     let mut app = App {

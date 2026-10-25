@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-/// `/etc/ffa-hub/hub.toml` (see hub-node/hub.example.toml).
+/// `/etc/farmlab-hub/hub.toml` (see hub-node/hub.example.toml).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -75,7 +75,7 @@ impl Default for LoraConfig {
 }
 
 fn default_data_dir() -> PathBuf {
-    "/var/lib/ffa-hub".into()
+    "/var/lib/farmlab-hub".into()
 }
 fn default_udp() -> String {
     "0.0.0.0:7300".into()

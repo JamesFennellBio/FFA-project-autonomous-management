@@ -123,7 +123,7 @@ impl HubClient {
     /// [`HubClient::pair`] returned last time (None before the first pairing).
     ///
     /// CRYPTO-REVIEW: `expected_hub_key` (hex), if given, is the only hub
-    /// key pairing will accept, like FFA_HUB_KEY on the nodes. Without it the
+    /// key pairing will accept, like FARMLAB_HUB_KEY on the nodes. Without it the
     /// phone trusts the first hub that answers (check the fingerprint).
     #[uniffi::constructor]
     pub fn new(

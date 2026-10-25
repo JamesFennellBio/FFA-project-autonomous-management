@@ -8,10 +8,10 @@ import { keyFingerprint, makeClient, newSeed, seedFingerprint, type SavedPairing
 // Keystore), readable only while the phone is unlocked and never backed up.
 // CRYPTO-REVIEW: "seed" is this phone's long-term Ed25519 secret.
 const KEYS = {
-  seed: "ffa.seed",
-  addr: "ffa.hub_addr",
-  pin: "ffa.hub_key",
-  pairing: "ffa.pairing",
+  seed: "farmlab.seed",
+  addr: "farmlab.hub_addr",
+  pin: "farmlab.hub_key",
+  pairing: "farmlab.pairing",
 } as const;
 const STORE_OPTS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,

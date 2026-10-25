@@ -18,4 +18,4 @@ export declare function newIdentitySeed(): string;
 export declare function fingerprintOfSeed(seedHex: string): string;
 export declare function fingerprintOfKey(publicKeyHex: string): string;
 
-throw new Error("ffa-hub-native isn't built yet: run `npm run ubrn:android` or `npm run ubrn:ios` in mobile/native");
+throw new Error("farmlab-hub-native isn't built yet: run `npm run ubrn:android` or `npm run ubrn:ios` in mobile/native");

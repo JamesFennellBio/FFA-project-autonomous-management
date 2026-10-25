@@ -43,11 +43,11 @@ jobs:
           workspaces: data-node
       - name: build (Wi-Fi)
         working-directory: data-node
-        env: { FFA_WIFI_SSID: ci, FFA_WIFI_PASSWORD: ci-password }
+        env: { FARMLAB_WIFI_SSID: ci, FARMLAB_WIFI_PASSWORD: ci-password }
         run: cargo build --release
       - name: build (Wi-Fi + LoRa)
         working-directory: data-node
-        env: { FFA_WIFI_SSID: ci, FFA_TRANSPORT: auto }
+        env: { FARMLAB_WIFI_SSID: ci, FARMLAB_TRANSPORT: auto }
         run: cargo build --release --features lora
 
   audit:

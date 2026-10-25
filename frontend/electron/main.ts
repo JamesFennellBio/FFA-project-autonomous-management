@@ -9,19 +9,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-const API_URL = process.env.FFA_API_URL ?? "http://127.0.0.1:7401";
+const API_URL = process.env.FARMLAB_API_URL ?? "http://127.0.0.1:7401";
 
-// Same folder the Rust `directories` crate picks for ("org", "ffa", "ffa-daemon").
+// Same folder the Rust `directories` crate picks for ("org", "farmlab", "farmlab-daemon").
 function tokenPath(): string {
-  if (process.env.FFA_TOKEN_FILE) return process.env.FFA_TOKEN_FILE;
+  if (process.env.FARMLAB_TOKEN_FILE) return process.env.FARMLAB_TOKEN_FILE;
   const home = os.homedir();
   switch (process.platform) {
     case "win32":
-      return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), "ffa", "ffa-daemon", "config", "api-token");
+      return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), "farmlab", "farmlab-daemon", "config", "api-token");
     case "darwin":
-      return path.join(home, "Library", "Application Support", "org.ffa.ffa-daemon", "api-token");
+      return path.join(home, "Library", "Application Support", "org.farmlab.farmlab-daemon", "api-token");
     default:
-      return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "ffa-daemon", "api-token");
+      return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "farmlab-daemon", "api-token");
   }
 }
 
@@ -75,7 +75,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: "FFA Farm & Lab",
+    title: "Autonomous Farm & Lab",
     backgroundColor: "#0f1a14",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

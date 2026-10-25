@@ -36,7 +36,7 @@ struct Args {
     #[arg(long)]
     pair: bool,
     /// Only pair with this hub (64 hex chars from `hub-node fingerprint`),
-    /// like FFA_HUB_KEY in the firmware.
+    /// like FARMLAB_HUB_KEY in the firmware.
     #[arg(long)]
     hub_key: Option<String>,
 }
@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     let (seed, pairing) = load_state(&args.state)?;
     let mut core = NodeCore::new(&seed, pairing);
     if let Some(k) = &args.hub_key {
-        // CRYPTO-REVIEW: pinned hub key, same as FFA_HUB_KEY on the ESP32.
+        // CRYPTO-REVIEW: pinned hub key, same as FARMLAB_HUB_KEY on the ESP32.
         core = core.with_expected_peer(uplink::key_from_hex(k)?);
     }
     info!(

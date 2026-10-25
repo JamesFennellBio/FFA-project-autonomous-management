@@ -31,13 +31,13 @@
 - One-time: `cargo install espflash --locked`
 - Give the Pi a DHCP reservation on the router
 - Env vars:
-  - `FFA_WIFI_SSID`, `FFA_WIFI_PASSWORD`
-  - `FFA_HUB_IP`: Pi's IP
-  - `FFA_HUB_KEY`: from `hub-node fingerprint`; node refuses any other hub
-  - `FFA_TRANSPORT`: `wifi`, `lora` or `auto` (Wi-Fi when connected, else LoRa)
-- Without `FFA_HUB_KEY`, someone nearby could answer the pairing request first
-- Wi-Fi: `cd data-node && FFA_WIFI_SSID="FarmNet" FFA_WIFI_PASSWORD="..." FFA_HUB_IP="192.168.1.10" FFA_HUB_KEY="<hub key>" FFA_TRANSPORT="wifi" cargo run --release`
-- LoRa / auto: same with `FFA_TRANSPORT="auto"` and `cargo run --release --features lora`
+  - `FARMLAB_WIFI_SSID`, `FARMLAB_WIFI_PASSWORD`
+  - `FARMLAB_HUB_IP`: Pi's IP
+  - `FARMLAB_HUB_KEY`: from `hub-node fingerprint`; node refuses any other hub
+  - `FARMLAB_TRANSPORT`: `wifi`, `lora` or `auto` (Wi-Fi when connected, else LoRa)
+- Without `FARMLAB_HUB_KEY`, someone nearby could answer the pairing request first
+- Wi-Fi: `cd data-node && FARMLAB_WIFI_SSID="FarmNet" FARMLAB_WIFI_PASSWORD="..." FARMLAB_HUB_IP="192.168.1.10" FARMLAB_HUB_KEY="<hub key>" FARMLAB_TRANSPORT="wifi" cargo run --release`
+- LoRa / auto: same with `FARMLAB_TRANSPORT="auto"` and `cargo run --release --features lora`
 - First boot prints a fingerprint, e.g. `8FA7-0608-CEBB-45C1` → note it for pairing
 
 ## Setting up the Pi hub
@@ -55,18 +55,18 @@
 - Build on the PC (needs Docker):
   - `cargo install cross --locked`
   - `cross build --release --target aarch64-unknown-linux-gnu -p hub-node --features lora`
-- Copy: `scp target/aarch64-unknown-linux-gnu/release/hub-node hub-node/hub.example.toml deploy/ffa-hub.service pi@ffa-hub.local:~`
-- Install on the Pi: `sudo useradd -r -G spi,gpio ffa; sudo install hub-node /usr/local/bin/; sudo mkdir -p /etc/ffa-hub /var/lib/ffa-hub; sudo chown ffa /var/lib/ffa-hub; sudo cp hub.example.toml /etc/ffa-hub/hub.toml`
-- Edit `/etc/ffa-hub/hub.toml`:
+- Copy: `scp target/aarch64-unknown-linux-gnu/release/hub-node hub-node/hub.example.toml deploy/farmlab-hub.service pi@farmlab-hub.local:~`
+- Install on the Pi: `sudo useradd -r -G spi,gpio farmlab; sudo install hub-node /usr/local/bin/; sudo mkdir -p /etc/farmlab-hub /var/lib/farmlab-hub; sudo chown farmlab /var/lib/farmlab-hub; sudo cp hub.example.toml /etc/farmlab-hub/hub.toml`
+- Edit `/etc/farmlab-hub/hub.toml`:
   - `pc_addr`: PC's IP
   - `pc_public_key`: from pc-daemon's log / app Pairing page (hub only talks to that PC)
   - `lora.enabled = true`
   - `app_listen`: phone port, default `0.0.0.0:7301`
-- Create identity: `sudo -u ffa hub-node --config /etc/ffa-hub/hub.toml init`
+- Create identity: `sudo -u farmlab hub-node --config /etc/farmlab-hub/hub.toml init`
   - 24 words shown once, never saved → write on paper
-  - derived key IS saved in `/var/lib/ffa-hub/identity.key` → keep SD card safe
-  - prints hub public key = `FFA_HUB_KEY` (again: `hub-node fingerprint`)
-- Start: `sudo cp ffa-hub.service /etc/systemd/system/ && sudo systemctl enable --now ffa-hub`
+  - derived key IS saved in `/var/lib/farmlab-hub/identity.key` → keep SD card safe
+  - prints hub public key = `FARMLAB_HUB_KEY` (again: `hub-node fingerprint`)
+- Start: `sudo cp farmlab-hub.service /etc/systemd/system/ && sudo systemctl enable --now farmlab-hub`
 - Readings in RAM, written to SD once a day + on stop, 30 days kept
 - Pairings and recipes saved right away
 
@@ -74,7 +74,7 @@
 - `cargo build --release -p pc-daemon`
 - `./target/release/pc-daemon`
 - Firewall: allow TCP 7400 from the Pi (API on 7401 stays localhost-only)
-- Run at login (Linux): `deploy/ffa-daemon.service`
+- Run at login (Linux): `deploy/farmlab-daemon.service`
 - App needs Node.js 20+: `cd frontend && npm install && npm run dev`
 - Installer (AppImage / .exe / .dmg): `cd frontend && npm run dist`
 
@@ -131,22 +131,22 @@
 
 ## Hub recovery (recovery phrase)
 - New SD card, install hub-node as above
-- `sudo -u ffa hub-node --config /etc/ffa-hub/hub.toml restore` → type the 24 words
+- `sudo -u farmlab hub-node --config /etc/farmlab-hub/hub.toml restore` → type the 24 words
 - Existing identity → needs `--force` (old-key nodes stop working)
 - Same identity back → nodes keep working
-- Copy `paired.json` (and `recipes.json`) from a backup of `/var/lib/ffa-hub`, or re-pair
+- Copy `paired.json` (and `recipes.json`) from a backup of `/var/lib/farmlab-hub`, or re-pair
 - Re-approve the hub on the PC if the PC lost its database
 
 ## Troubleshooting
-- "Daemon offline" → start `pc-daemon`; token in `~/.config/ffa-daemon/api-token`
+- "Daemon offline" → start `pc-daemon`; token in `~/.config/farmlab-daemon/api-token`
 - Hub never shows for pairing → `pc_addr`, PC firewall TCP 7400
 - Node `wifi connect failed` → SSID/password, 2.4 GHz only, rebuild after env changes
-- Node keeps sending HELLO → `FFA_HUB_IP`; unpaired? hold BOOT 10 s, pair again
+- Node keeps sending HELLO → `FARMLAB_HUB_IP`; unpaired? hold BOOT 10 s, pair again
 - `SX1262 init failed` → wiring (BUSY/RESET); Ebyte E22 needs `tcxo = true` (hub) / `tcxo: true` in `setup_lora` (node)
 - Temperature missing / "Sensor fault" → 4.7 kΩ pull-up DATA ↔ 3V3
 - Readings stop with PC off → expected; hub stores 30 days, sends backlog later
 - Hub log "answered with a key that is not pc_public_key" → recopy key from Pairing page
-- Node log "saved pairing is for a different hub than FFA_HUB_KEY" → pair again
+- Node log "saved pairing is for a different hub than FARMLAB_HUB_KEY" → pair again
 - Command "dropped" → LoRa node out of reach, 16+ queued; resend later
 - Phone "the hub didn't answer" → same Wi-Fi (not guest / mobile data), right IP, iOS Local Network allowed, UDP 7301 open on the Pi
 - Phone pairing never approved → PC daemon running and hub connected to it

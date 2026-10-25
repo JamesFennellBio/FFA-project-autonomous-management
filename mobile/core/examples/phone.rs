@@ -2,15 +2,15 @@
 //! end-to-end test, and handy for poking at the hub from a laptop.
 //!
 //! ```text
-//! cargo run -p ffa-mobile-core --example phone -- --hub 127.0.0.1:7301 pair
-//! cargo run -p ffa-mobile-core --example phone -- --hub 127.0.0.1:7301 ask '{"type":"channels"}'
+//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 pair
+//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 ask '{"type":"channels"}'
 //! ```
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ffa_mobile_core::{HubClient, PhonePairing, fingerprint_of_seed, new_identity_seed};
+use farmlab_mobile_core::{HubClient, PhonePairing, fingerprint_of_seed, new_identity_seed};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]

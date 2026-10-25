@@ -1,8 +1,8 @@
 # uniffi-bindgen-react-native: builds mobile/core for iOS and Android and
-# generates the TypeScript + C++ turbo module the app imports as "ffa-hub-native".
+# generates the TypeScript + C++ turbo module the app imports as "farmlab-hub-native".
 #   npm run ubrn:android     (needs the Android NDK; see README.md)
 #   npm run ubrn:ios         (macOS + Xcode only)
-name: FfaHubNative
+name: FarmlabHubNative
 rust:
   directory: ../core
   manifestPath: Cargo.toml
