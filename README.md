@@ -4,7 +4,7 @@
 - IoT farm / lab management system
 - ESP32-C3 data nodes → Raspberry Pi 3B hub → PC daemon → Electron desktop app
 - Phone app (iOS + Android) talks to the hub directly
-- Recipes (if-this-then-that) built with Blockly blocks on the phone, run on the hub
+- Recipes (if-this-then-that) built with Blockly blocks on the phone or desktop, run on the hub
 - Demo channels: siren, solenoid, photoresistor, DS18B20 thermometer
 - Website: `website/` (Farm / Lab versions, editable in the browser)
 

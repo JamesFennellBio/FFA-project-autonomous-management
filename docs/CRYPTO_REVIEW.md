@@ -229,8 +229,8 @@
 | `hub-node/src/hub.rs` | 393 | HELLO from a paired node or phone. The signature is |
 | `hub-node/src/hub.rs` | 447 | hub side of pairing for nodes and phones; see |
 | `hub-node/src/hub.rs` | 661 | never silently re-point an id at a new |
-| `hub-node/src/hub/app.rs` | 164 | same AEAD + replay checks as the PC uplink; |
-| `hub-node/src/hub/app.rs` | 314 | a phone can only approve a node that is |
+| `hub-node/src/hub/app.rs` | 168 | same AEAD + replay checks as the PC uplink; |
+| `hub-node/src/hub/app.rs` | 318 | a phone can only approve a node that is |
 | `hub-node/src/main.rs` | 78 | the phrase is printed once and never saved. The |
 | `hub-node/src/pc_link.rs` | 29 | pinned PC daemon Ed25519 key. |
 | `hub-node/src/pc_link.rs` | 53 | `pc_key` is the PC daemon's public key from hub.toml. The |
@@ -248,8 +248,8 @@
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
 | `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
 | `node-sim/src/main.rs` | 162 | handshake randomness |
-| `pc-daemon/src/api/mod.rs` | 117 | the human approval step of pairing. A device's key is only |
-| `pc-daemon/src/api/mod.rs` | 127 | only keys that are in the pending list (they sent a signed |
+| `pc-daemon/src/api/mod.rs` | 127 | the human approval step of pairing. A device's key is only |
+| `pc-daemon/src/api/mod.rs` | 137 | only keys that are in the pending list (they sent a signed |
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
 | `pc-daemon/src/db.rs` | 47 | the pinned hub key, if a hub is paired. |
@@ -257,12 +257,12 @@
 | `pc-daemon/src/hub_link.rs` | 209 | verifies the hub's signature with the pinned key. |
 | `pc-daemon/src/hub_link.rs` | 289 | hub pairing. A hub is only pinned after a person approved |
 | `pc-daemon/src/main.rs` | 62 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
-| `pc-daemon/src/state.rs` | 45 | the PC daemon's long-term signing key. |
-| `pc-daemon/src/state.rs` | 50 | hub key a person approved in the app; it's pinned once |
-| `uplink/src/lib.rs` | 226 | seal a JSON value as an Uplink frame under the session. |
-| `uplink/src/lib.rs` | 237 | open an Uplink frame. `open` is either `Session::open` or |
-| `uplink/src/lib.rs` | 284 | used for the PC daemon's identity seed. The OS RNG fills |
-| `uplink/src/lib.rs` | 317 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
+| `pc-daemon/src/state.rs` | 49 | the PC daemon's long-term signing key. |
+| `pc-daemon/src/state.rs` | 54 | hub key a person approved in the app; it's pinned once |
+| `uplink/src/lib.rs` | 261 | seal a JSON value as an Uplink frame under the session. |
+| `uplink/src/lib.rs` | 272 | open an Uplink frame. `open` is either `Session::open` or |
+| `uplink/src/lib.rs` | 319 | used for the PC daemon's identity seed. The OS RNG fills |
+| `uplink/src/lib.rs` | 352 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
 _98 tagged locations._
 

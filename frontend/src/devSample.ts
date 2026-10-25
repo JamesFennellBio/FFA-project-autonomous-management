@@ -1,7 +1,7 @@
 // Dev only: sample data for running the page in a plain browser (`npx vite`),
 // so the look can be worked on without pc-daemon or Electron.
 // main.tsx loads this only when window.farmlab is missing in a dev build.
-import type { Alert, NodeInfo, PendingPair, Phone, Rule, Status } from "./types";
+import type { Alert, NodeInfo, PendingPair, Phone, Recipe, Status } from "./types";
 
 const now = () => Math.floor(Date.now() / 1000);
 const t0 = now();
@@ -37,17 +37,35 @@ const alerts: Alert[] = [
   { id: 3, node_id: 1, node_name: "North barn", channel: 2, code: 3, value: 1, message: "Door opened", ts: t0 - 86400, acked: true },
 ];
 
-const rules: Rule[] = [
-  { id: 1, name: "Cool the barn", enabled: true, node_id: 1, channel: 0, op: "gt", threshold: 30000, target_node: 1, target_channel: 3, on_value: 1, off_value: 0, active: false },
-  { id: 2, name: "Greenhouse too hot", enabled: true, node_id: 2, channel: 0, op: "gt", threshold: 30000, target_node: 2, target_channel: 2, on_value: 1, off_value: 0, active: false },
-  { id: 3, name: "Dry soil", enabled: false, node_id: 1, channel: 1, op: "lt", threshold: 1200, target_node: 1, target_channel: 4, on_value: 1, off_value: 0, active: false },
+const recipes: Recipe[] = [
+  {
+    id: 1, name: "Cool the barn", enabled: true,
+    when: { type: "compare", node: 1, channel: 0, op: "gt", value: 30000 },
+    then: [{ type: "set", node: 1, channel: 3, value: 1 }],
+    otherwise: [{ type: "set", node: 1, channel: 3, value: 0 }],
+  },
+  {
+    id: 2, name: "Greenhouse guard", enabled: true,
+    when: { type: "and", all: [
+      { type: "compare", node: 2, channel: 0, op: "gt", value: 32000 },
+      { type: "not", cond: { type: "compare", node: 1, channel: 2, op: "eq", value: 1 } },
+    ] },
+    then: [{ type: "set", node: 2, channel: 2, value: 1 }, { type: "alert", text: "Greenhouse over 32 °C" }],
+    otherwise: [{ type: "set", node: 2, channel: 2, value: 0 }],
+  },
+  {
+    id: 3, name: "Dry soil", enabled: false,
+    when: { type: "compare", node: 1, channel: 1, op: "lt", value: 1200 },
+    then: [{ type: "set", node: 1, channel: 4, value: 1 }],
+    otherwise: [{ type: "set", node: 1, channel: 4, value: 0 }],
+  },
 ];
 
 const pending: PendingPair[] = [
   { kind: "node", public_key: "a1b2c3", fingerprint: "5E2D-77A0-C9B1", transport: "wifi", seen_at: t0 - 15 },
 ];
 const phones: Phone[] = [{ id: 1, fingerprint: "B7C1-0E98-4FA2", name: "James's phone", paired_at: t0 - 86400 * 3 }];
-let nextRule = 4;
+let nextRecipe = 4;
 
 // Small random walk so the dashboard moves like the real thing.
 setInterval(() => {
@@ -106,10 +124,15 @@ function handle(method: string, path: string, body: unknown): unknown {
   if (p[0] === "phones") { phones.splice(phones.findIndex((x) => x.id === Number(p[1])), 1); return {}; }
   if (p[0] === "alerts" && p[2] === "ack") { const a = alerts.find((x) => x.id === Number(p[1])); if (a) a.acked = true; return {}; }
   if (p[0] === "alerts") return q.get("unacked") === "true" ? alerts.filter((a) => !a.acked) : alerts;
-  if (p[0] === "rules" && method === "GET") return rules;
-  if (p[0] === "rules" && method === "POST") { rules.push({ ...(b as unknown as Rule), id: nextRule++, active: false }); return {}; }
-  if (p[0] === "rules" && method === "PUT") { const i = rules.findIndex((r) => r.id === Number(p[1])); rules[i] = { ...(b as unknown as Rule), id: rules[i].id, active: false }; return {}; }
-  if (p[0] === "rules" && method === "DELETE") { rules.splice(rules.findIndex((r) => r.id === Number(p[1])), 1); return {}; }
+  if (p[0] === "recipes" && p.length === 1 && method === "GET") {
+    return { recipes: recipes.map(({ id, name, enabled }) => ({ id, name, enabled })), max_recipes: 32 };
+  }
+  const recipe = recipes.find((r) => r.id === Number(p[1]));
+  if (p[0] === "recipes" && p[2] === "enabled") { if (recipe) recipe.enabled = Boolean(b.enabled); return {}; }
+  if (p[0] === "recipes" && method === "GET") return recipe ? { recipe } : null;
+  if (p[0] === "recipes" && method === "POST") { const id = nextRecipe++; recipes.push({ ...(b as unknown as Recipe), id }); return { id }; }
+  if (p[0] === "recipes" && method === "PUT" && recipe) { Object.assign(recipe, b, { id: recipe.id }); return { id: recipe.id }; }
+  if (p[0] === "recipes" && method === "DELETE") { recipes.splice(recipes.findIndex((r) => r.id === Number(p[1])), 1); return {}; }
   return null;
 }
 

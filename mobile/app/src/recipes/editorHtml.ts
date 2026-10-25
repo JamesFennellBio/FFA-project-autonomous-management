@@ -2,6 +2,8 @@
 //
 // It never makes code: the blocks turn into the hub's recipe JSON (see
 // hub-node/src/recipes.rs), which the hub checks again before saving.
+// The desktop app has the same blocks (frontend/src/recipes/blocks.ts); keep
+// the two in step so a recipe opens in either app.
 //
 // RN -> page:  window.FARMLAB_INIT = { sensors, outputs, recipe } (before load)
 // page -> RN:  { type: "recipe", when, then, otherwise } or { type: "error", message }

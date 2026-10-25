@@ -359,6 +359,14 @@ fn store_batch(
                 phone_id,
                 ..
             } => approvals.push((public_key.clone(), name.clone(), *phone_id)),
+            HubMsg::RecipeReply { req, ok, err } => state.recipe_reply(
+                *req,
+                match (ok, err) {
+                    (_, Some(e)) => Err(e.clone()),
+                    (Some(v), None) => Ok(v.clone()),
+                    (None, None) => Err("empty reply from the hub".into()),
+                },
+            ),
             HubMsg::Heartbeat { backlog, ts } => {
                 let mut hub = state.hub.lock().unwrap();
                 hub.backlog = *backlog;

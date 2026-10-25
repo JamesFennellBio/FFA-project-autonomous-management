@@ -101,8 +101,11 @@
 ## Using the desktop app
 - Dashboard: live values, On/Off for outputs; nodes report every 10 s
 - History: chart per channel, 1 h / 24 h / 7 d / 30 d
-- Automation: e.g. temp > 30 °C → siren ON, OFF when it clears (runs on the PC)
-- Alerts: sensor faults, rules fired, recipe alerts
+- Automation: Blockly recipes, the same ones as the phone app
+  - New recipe → drag blocks into when / do / otherwise → Save to hub
+  - stored and run on the hub; the PC only passes them on (hub must be connected to edit)
+  - On/Off switch per recipe
+- Alerts: sensor faults, recipe alerts
 - Devices: rename nodes / channels, key-exchange count
 - Safety: node hears nothing for 5 min → all outputs OFF
 
@@ -116,7 +119,7 @@
   - run on the hub → work with PC and phone off
   - max 32
   - off / edit / delete while active → runs "otherwise" first
-  - separate from the desktop Automation rules
+  - same recipes as the desktop Automation page
 - Lost phone: unpair it on the desktop; until then it still works
 
 ## Adding sensors and outputs

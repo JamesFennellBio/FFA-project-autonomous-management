@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, NodeInfo, PendingPair, Phone, Reading, Rule, RuleInput, Status } from "./types";
+import type { Alert, NodeInfo, PendingPair, Phone, Reading, Recipe, RecipeInput, RecipeSummary, Status } from "./types";
 
 type RawResponse = { ok: boolean; status: number; data: unknown };
 
@@ -41,10 +41,13 @@ export const api = {
   unpairPhone: (id: number) => call("DELETE", `/api/phones/${id}`),
   alerts: (unacked = false) => call<Alert[]>("GET", `/api/alerts?unacked=${unacked}`),
   ackAlert: (id: number) => call("POST", `/api/alerts/${id}/ack`),
-  rules: () => call<Rule[]>("GET", "/api/rules"),
-  createRule: (r: RuleInput) => call("POST", "/api/rules", r),
-  updateRule: (id: number, r: RuleInput) => call("PUT", `/api/rules/${id}`, r),
-  deleteRule: (id: number) => call("DELETE", `/api/rules/${id}`),
+  // Passed on to the hub, which stores and runs them.
+  recipes: () => call<{ recipes: RecipeSummary[]; max_recipes: number }>("GET", "/api/recipes"),
+  recipe: (id: number) => call<{ recipe: Recipe }>("GET", `/api/recipes/${id}`),
+  createRecipe: (r: RecipeInput) => call<{ id: number }>("POST", "/api/recipes", r),
+  updateRecipe: (id: number, r: RecipeInput) => call<{ id: number }>("PUT", `/api/recipes/${id}`, r),
+  deleteRecipe: (id: number) => call("DELETE", `/api/recipes/${id}`),
+  setRecipeEnabled: (id: number, enabled: boolean) => call("POST", `/api/recipes/${id}/enabled`, { enabled }),
 };
 
 /** Polls `fn` every `ms`. Returns the latest data, the latest error and a manual refresh. */

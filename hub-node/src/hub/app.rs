@@ -14,10 +14,14 @@
 //! What a phone may do: read live values, history and alerts; set outputs;
 //! approve waiting *nodes* (the PC still assigns the id); manage recipes. It
 //! can't pair other phones, unpair anything, or change hub settings.
+//!
+//! The desktop app manages the same recipes through the PC daemon
+//! (`PcMsg::Recipe`, see [`Hub::on_pc_recipe`]), with the same checks.
 
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
+use uplink::RecipeOp;
 use uplink::app::{MAX_APP_FRAME, MAX_APP_PLAINTEXT};
 
 use super::*;
@@ -339,30 +343,92 @@ impl Hub {
                 let (items, next) = page(&items, offset);
                 json!({ "recipes": items, "next": next })
             }
-            Request::GetRecipe { id } => {
-                json!({ "recipe": self.recipes.get(id).ok_or("no such recipe")? })
-            }
-            Request::SaveRecipe { recipe } => {
-                self.check_recipe(&recipe)?;
-                let (id, off) = self.recipes.upsert(recipe)?;
-                if let Some(f) = off {
-                    self.run(vec![f], mono, unix, out);
-                }
-                json!({ "id": id })
-            }
-            Request::DeleteRecipe { id } => {
-                if let Some(f) = self.recipes.remove(id)? {
-                    self.run(vec![f], mono, unix, out);
-                }
-                json!({ "deleted": id })
-            }
+            Request::GetRecipe { id } => self.get_recipe(id)?,
+            Request::SaveRecipe { recipe } => self.save_recipe(recipe, mono, unix, out)?,
+            Request::DeleteRecipe { id } => self.delete_recipe(id, mono, unix, out)?,
             Request::SetRecipeEnabled { id, enabled } => {
-                if let Some(f) = self.recipes.set_enabled(id, enabled)? {
-                    self.run(vec![f], mono, unix, out);
-                }
-                json!({ "id": id, "enabled": enabled })
+                self.set_recipe_enabled(id, enabled, mono, unix, out)?
             }
         })
+    }
+
+    /// A recipe request from the PC daemon (the desktop app). The answer goes
+    /// back as `HubMsg::RecipeReply`. The uplink carries 32 KB frames, so the
+    /// list isn't paged like the phone's.
+    pub fn on_pc_recipe(
+        &mut self,
+        op: RecipeOp,
+        mono: u64,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<Value, String> {
+        match op {
+            RecipeOp::List => Ok(json!({
+                "recipes": self
+                    .recipes
+                    .list()
+                    .iter()
+                    .map(|r| json!({ "id": r.id, "name": r.name, "enabled": r.enabled }))
+                    .collect::<Vec<_>>(),
+                "max_recipes": MAX_RECIPES,
+            })),
+            RecipeOp::Get { id } => self.get_recipe(id),
+            RecipeOp::Save { recipe } => {
+                let recipe: Recipe =
+                    serde_json::from_value(recipe).map_err(|e| format!("bad recipe: {e}"))?;
+                self.save_recipe(recipe, mono, unix, out)
+            }
+            RecipeOp::Delete { id } => self.delete_recipe(id, mono, unix, out),
+            RecipeOp::SetEnabled { id, enabled } => {
+                self.set_recipe_enabled(id, enabled, mono, unix, out)
+            }
+        }
+    }
+
+    fn get_recipe(&self, id: u32) -> Result<Value, String> {
+        Ok(json!({ "recipe": self.recipes.get(id).ok_or("no such recipe")? }))
+    }
+
+    fn save_recipe(
+        &mut self,
+        recipe: Recipe,
+        mono: u64,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<Value, String> {
+        self.check_recipe(&recipe)?;
+        let (id, off) = self.recipes.upsert(recipe)?;
+        if let Some(f) = off {
+            self.run(vec![f], mono, unix, out);
+        }
+        Ok(json!({ "id": id }))
+    }
+
+    fn delete_recipe(
+        &mut self,
+        id: u32,
+        mono: u64,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<Value, String> {
+        if let Some(f) = self.recipes.remove(id)? {
+            self.run(vec![f], mono, unix, out);
+        }
+        Ok(json!({ "deleted": id }))
+    }
+
+    fn set_recipe_enabled(
+        &mut self,
+        id: u32,
+        enabled: bool,
+        mono: u64,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<Value, String> {
+        if let Some(f) = self.recipes.set_enabled(id, enabled)? {
+            self.run(vec![f], mono, unix, out);
+        }
+        Ok(json!({ "id": id, "enabled": enabled }))
     }
 
     /// Shape checks plus: every node it uses is paired, and every "set"
@@ -585,6 +651,84 @@ mod tests {
 
         let (v, _) = r.ask(json!({ "type": "get_recipe", "id": id }));
         assert_eq!(v["ok"]["recipe"]["enabled"], false);
+    }
+
+    #[test]
+    fn desktop_and_phone_edit_the_same_recipes() {
+        let mut r = rig();
+        // Sends a recipe request as the PC daemon does and returns the hub's reply.
+        let pc = |hub: &mut Hub, req: u32, op: RecipeOp| {
+            let out = hub.on_pc(PcMsg::Recipe { req, op }, 1, 100);
+            match out.live.as_slice() {
+                [HubMsg::RecipeReply { req: got, ok, err }] => {
+                    assert_eq!(*got, req);
+                    (ok.clone(), err.clone())
+                }
+                other => panic!("expected one reply, got {other:?}"),
+            }
+        };
+
+        let recipe = json!({
+            "name": "Desk",
+            "when": { "type": "compare", "node": 1, "channel": 0, "op": "gt", "value": 30000 },
+            "then": [ { "type": "set", "node": 1, "channel": 1, "value": 1 } ]
+        });
+        let (ok, err) = pc(&mut r.hub, 1, RecipeOp::Save { recipe });
+        assert_eq!(err, None);
+        let id = ok.unwrap()["id"].as_u64().unwrap();
+
+        // The phone sees it.
+        let (v, _) = r.ask(json!({ "type": "recipes" }));
+        assert_eq!(v["ok"]["recipes"][0]["name"], "Desk");
+
+        // A recipe the phone saves shows up in the desktop's list.
+        let phone_recipe = json!({
+            "name": "Phone",
+            "when": { "type": "compare", "node": 1, "channel": 0, "op": "lt", "value": 5000 },
+            "then": [ { "type": "alert", "text": "Cold" } ]
+        });
+        r.ask(json!({ "type": "save_recipe", "recipe": phone_recipe }));
+        let (ok, _) = pc(&mut r.hub, 2, RecipeOp::List);
+        let names: Vec<_> = ok.unwrap()["recipes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, ["Desk", "Phone"]);
+
+        // Same checks as the phone: a "set" on a sensor channel is refused.
+        let bad = json!({
+            "name": "bad",
+            "when": { "type": "compare", "node": 1, "channel": 0, "op": "gt", "value": 1 },
+            "then": [ { "type": "set", "node": 1, "channel": 0, "value": 1 } ]
+        });
+        let (ok, err) = pc(&mut r.hub, 3, RecipeOp::Save { recipe: bad });
+        assert!(ok.is_none() && err.is_some());
+        let (_, err) = pc(
+            &mut r.hub,
+            4,
+            RecipeOp::Save {
+                recipe: json!({ "name": 5 }),
+            },
+        );
+        assert!(err.unwrap().starts_with("bad recipe"));
+
+        let (ok, _) = pc(
+            &mut r.hub,
+            5,
+            RecipeOp::SetEnabled {
+                id: id as u32,
+                enabled: false,
+            },
+        );
+        assert_eq!(ok.unwrap()["enabled"], false);
+        let (ok, _) = pc(&mut r.hub, 6, RecipeOp::Get { id: id as u32 });
+        assert_eq!(ok.unwrap()["recipe"]["enabled"], false);
+        let (ok, _) = pc(&mut r.hub, 7, RecipeOp::Delete { id: id as u32 });
+        assert_eq!(ok.unwrap()["deleted"], id);
+        let (_, err) = pc(&mut r.hub, 8, RecipeOp::Get { id: id as u32 });
+        assert_eq!(err.as_deref(), Some("no such recipe"));
     }
 
     #[test]

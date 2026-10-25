@@ -745,6 +745,14 @@ impl Hub {
                     warn!("command from PC: {e}");
                 }
             }
+            PcMsg::Recipe { req, op } => {
+                let r = self.on_pc_recipe(op, mono, unix, &mut out);
+                out.live.push(HubMsg::RecipeReply {
+                    req,
+                    ok: r.as_ref().ok().cloned(),
+                    err: r.err(),
+                });
+            }
         }
         out
     }

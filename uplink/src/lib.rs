@@ -157,6 +157,39 @@ pub enum HubMsg {
         phone_id: u16,
         ts: i64,
     },
+    /// Answer to [`PcMsg::Recipe`] with the same `req`: `ok` on success,
+    /// `err` saying why not. Live only (never stored).
+    RecipeReply {
+        req: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ok: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        err: Option<String>,
+    },
+}
+
+/// Recipe requests from the desktop app. The hub stores and runs recipes
+/// (hub-node/src/recipes.rs); these are the same operations the phone app
+/// has, so both apps edit one set of recipes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RecipeOp {
+    /// Every recipe's id, name and enabled flag.
+    List,
+    Get {
+        id: u32,
+    },
+    /// A recipe as JSON; id 0 = new. The hub checks it before saving.
+    Save {
+        recipe: serde_json::Value,
+    },
+    Delete {
+        id: u32,
+    },
+    SetEnabled {
+        id: u32,
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -189,6 +222,8 @@ pub enum PcMsg {
         nodes: Vec<(u16, String)>,
         channels: Vec<(u16, u8, String)>,
     },
+    /// A recipe request; the hub answers with [`HubMsg::RecipeReply`].
+    Recipe { req: u32, op: RecipeOp },
 }
 
 /// One encrypted hub -> PC frame. Each message carries the hub's row id so

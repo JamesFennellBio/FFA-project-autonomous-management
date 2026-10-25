@@ -4,8 +4,9 @@ use std::sync::Mutex;
 use crypto_sharecrate::crypto::identity::Identity;
 use rusqlite::Connection;
 use serde::Serialize;
-use tokio::sync::mpsc;
-use uplink::{PcMsg, Transport};
+use serde_json::Value;
+use tokio::sync::{mpsc, oneshot};
+use uplink::{PcMsg, RecipeOp, Transport};
 
 /// Pairing requests disappear from the app if not seen for this long.
 pub const PENDING_TTL_SECS: i64 = 300;
@@ -19,6 +20,9 @@ pub enum PairKind {
     Node,
     Phone,
 }
+
+/// The hub's answer to a recipe request: the result, or why it refused.
+pub type RecipeReply = Result<Value, String>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PendingPair {
@@ -52,6 +56,8 @@ pub struct AppState {
     pub approved_hub: Mutex<Option<[u8; 32]>>,
     /// (second, signature checks done in that second) on the hub port.
     sig_budget: Mutex<(u64, u32)>,
+    /// (last request id, API calls waiting for the hub's recipe reply).
+    recipe_waiters: Mutex<(u32, HashMap<u32, oneshot::Sender<RecipeReply>>)>,
 }
 
 /// Max Ed25519 verifications per second on the hub port, across all
@@ -68,6 +74,7 @@ impl AppState {
             pending: Mutex::new(HashMap::new()),
             approved_hub: Mutex::new(None),
             sig_budget: Mutex::new((0, 0)),
+            recipe_waiters: Mutex::new((0, HashMap::new())),
         }
     }
 
@@ -90,6 +97,33 @@ impl AppState {
         match &hub.tx {
             Some(tx) => tx.send(msg).is_ok(),
             None => false,
+        }
+    }
+
+    /// Sends a recipe request to the hub. The reply arrives on the returned
+    /// receiver; None if the hub isn't connected.
+    pub fn send_recipe(&self, op: RecipeOp) -> Option<oneshot::Receiver<RecipeReply>> {
+        let (tx, rx) = oneshot::channel();
+        let req = {
+            let mut w = self.recipe_waiters.lock().unwrap();
+            // Callers that gave up (timed out) dropped their receiver.
+            w.1.retain(|_, waiter| !waiter.is_closed());
+            w.0 = w.0.wrapping_add(1);
+            let req = w.0;
+            w.1.insert(req, tx);
+            req
+        };
+        if !self.send_to_hub(PcMsg::Recipe { req, op }) {
+            self.recipe_waiters.lock().unwrap().1.remove(&req);
+            return None;
+        }
+        Some(rx)
+    }
+
+    /// Hands the hub's reply to the API call waiting for it (if it still is).
+    pub fn recipe_reply(&self, req: u32, reply: RecipeReply) {
+        if let Some(tx) = self.recipe_waiters.lock().unwrap().1.remove(&req) {
+            let _ = tx.send(reply);
         }
     }
 

@@ -18,8 +18,12 @@
 //! | DELETE | /api/phones/{id}                              | unpair a phone |
 //! | GET    | /api/rules  · POST /api/rules                 | automation rules |
 //! | PUT    | /api/rules/{id} · DELETE /api/rules/{id}      | |
+//! | GET    | /api/recipes · POST /api/recipes              | hub recipes (Blockly); passed to the hub |
+//! | GET    | /api/recipes/{id} · PUT · DELETE              | |
+//! | POST   | /api/recipes/{id}/enabled                     | `{"enabled": true}` |
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -29,7 +33,7 @@ use axum::{Json, Router, middleware};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use uplink::{DeviceKind, PcMsg, unix_now};
+use uplink::{DeviceKind, PcMsg, RecipeOp, unix_now};
 
 use crate::state::{AppState, PairKind};
 use crate::{auth, db};
@@ -51,6 +55,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/alerts/{id}/ack", post(ack_alert))
         .route("/api/rules", get(list_rules).post(create_rule))
         .route("/api/rules/{id}", put(update_rule).delete(delete_rule))
+        .route("/api/recipes", get(list_recipes).post(create_recipe))
+        .route(
+            "/api/recipes/{id}",
+            get(get_recipe).put(update_recipe).delete(delete_recipe),
+        )
+        .route("/api/recipes/{id}/enabled", post(set_recipe_enabled))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,
@@ -399,6 +409,81 @@ async fn command(
         return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+/// How long an API call waits for the hub to answer a recipe request. The hub
+/// sends to the PC once a second.
+const RECIPE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Hub recipes are at most ~1.1 KB of JSON; anything far bigger is refused
+/// here so it can't make an uplink frame too big.
+const MAX_RECIPE_BODY: usize = 4096;
+
+/// Recipes live on the hub (hub-node/src/recipes.rs). The PC only passes
+/// requests on and returns the hub's answer, so the phone and desktop apps
+/// always see the same recipes.
+async fn ask_hub(s: &AppState, op: RecipeOp) -> ApiResult {
+    let rx = s
+        .send_recipe(op)
+        .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"))?;
+    match tokio::time::timeout(RECIPE_TIMEOUT, rx).await {
+        Ok(Ok(Ok(v))) => Ok(Json(v)),
+        Ok(Ok(Err(why))) => Err(err(StatusCode::BAD_REQUEST, &why)),
+        _ => Err(err(StatusCode::GATEWAY_TIMEOUT, "the hub didn't answer")),
+    }
+}
+
+fn recipe_body(mut recipe: Value, id: u32) -> Result<RecipeOp, ApiError> {
+    let obj = recipe
+        .as_object_mut()
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "recipe must be an object"))?;
+    obj.insert("id".into(), json!(id));
+    if serde_json::to_vec(&recipe).map_or(usize::MAX, |v| v.len()) > MAX_RECIPE_BODY {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "recipe is too big"));
+    }
+    Ok(RecipeOp::Save { recipe })
+}
+
+async fn list_recipes(State(s): St) -> ApiResult {
+    ask_hub(&s, RecipeOp::List).await
+}
+
+async fn get_recipe(State(s): St, Path(id): Path<u32>) -> ApiResult {
+    ask_hub(&s, RecipeOp::Get { id }).await
+}
+
+async fn create_recipe(State(s): St, Json(recipe): Json<Value>) -> ApiResult {
+    ask_hub(&s, recipe_body(recipe, 0)?).await
+}
+
+async fn update_recipe(State(s): St, Path(id): Path<u32>, Json(recipe): Json<Value>) -> ApiResult {
+    if id == 0 {
+        return Err(err(StatusCode::BAD_REQUEST, "no such recipe"));
+    }
+    ask_hub(&s, recipe_body(recipe, id)?).await
+}
+
+async fn delete_recipe(State(s): St, Path(id): Path<u32>) -> ApiResult {
+    ask_hub(&s, RecipeOp::Delete { id }).await
+}
+
+#[derive(Deserialize)]
+struct EnabledBody {
+    enabled: bool,
+}
+
+async fn set_recipe_enabled(
+    State(s): St,
+    Path(id): Path<u32>,
+    Json(b): Json<EnabledBody>,
+) -> ApiResult {
+    ask_hub(
+        &s,
+        RecipeOp::SetEnabled {
+            id,
+            enabled: b.enabled,
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -794,5 +879,55 @@ mod tests {
         );
         // Nothing left to approve.
         assert!(approve_key(&state, &node_key, None, true).is_err());
+    }
+
+    #[tokio::test]
+    async fn recipe_requests_go_to_the_hub_and_wait_for_its_reply() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        let state = Arc::new(AppState::new(conn, &[9u8; 32], "t".repeat(64)));
+
+        // Hub offline: refused at once.
+        let e = ask_hub(&state, RecipeOp::List).await.unwrap_err();
+        assert_eq!(e.0, StatusCode::SERVICE_UNAVAILABLE);
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        state.hub.lock().unwrap().tx = Some(tx);
+        // Plays the hub: answers the first request, refuses the second.
+        let hub = {
+            let state = state.clone();
+            tokio::spawn(async move {
+                for answer in [
+                    Ok(json!({ "id": 3 })),
+                    Err("node 9 isn't paired".to_string()),
+                ] {
+                    let Some(PcMsg::Recipe { req, op }) = rx.recv().await else {
+                        panic!("no request")
+                    };
+                    assert!(matches!(op, RecipeOp::Save { ref recipe } if recipe["id"] == 0));
+                    state.recipe_reply(req, answer);
+                }
+            })
+        };
+        let body = json!({ "name": "x", "when": {}, "then": [] });
+        let Json(v) = ask_hub(&state, recipe_body(body.clone(), 0).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(v["id"], 3);
+        let e = ask_hub(&state, recipe_body(body, 0).unwrap())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (e.0, e.message()),
+            (StatusCode::BAD_REQUEST, "node 9 isn't paired")
+        );
+        hub.await.unwrap();
+
+        // Too big to send over the uplink.
+        let huge = json!({ "name": "x".repeat(MAX_RECIPE_BODY) });
+        assert_eq!(
+            recipe_body(huge, 0).unwrap_err().0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
     }
 }

@@ -324,8 +324,10 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<Pc
             )?;
         }
         // Handled by hub_link (they update live state, not the DB).
-        HubMsg::PairRequest { .. } | HubMsg::Heartbeat { .. } | HubMsg::ApproveRequested { .. } => {
-        }
+        HubMsg::PairRequest { .. }
+        | HubMsg::Heartbeat { .. }
+        | HubMsg::ApproveRequested { .. }
+        | HubMsg::RecipeReply { .. } => {}
     }
     conn.execute("UPDATE hubs SET last_seq = MAX(last_seq, ?1)", params![seq])?;
     Ok(out)
