@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en" data-mode="farm" data-wall="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Autonomous Farm &amp; Lab</title>
+  <meta name="description" content="Wireless sensors, alarms and automation for farms and labs.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f9e57'/%3E%3Cpath d='M18 44c0-16 12-26 30-26-1 18-11 28-26 28' fill='none' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M18 46l14-14' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="site.js"></script>
+</head>
+<body>
+  <div class="wallpaper" aria-hidden="true">
+    <div class="wall wall-meadow"></div>
+    <div class="wall wall-fern"></div>
+    <div class="wall wall-night"></div>
+    <div class="hills"></div>
+  </div>
+
+  <!-- Menu bar -->
+  <header class="menubar">
+    <div class="mb-left">
+      <a class="mb-logo" href="#welcome" aria-label="Back to top">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c0-8 6-13 15-13-.5 9-5.5 14-13 14"/><path d="M5 20l7-7"/></svg>
+      </a>
+      <b class="mb-app" data-e>Autonomous Farm &amp; Lab</b>
+      <nav class="mb-menus" aria-label="Sections">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#recipes">Recipes</a>
+        <a href="#security">Security</a>
+        <a href="#hardware">Hardware</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </div>
+    <div class="mb-right">
+      <div class="seg" role="radiogroup" aria-label="Show the site for">
+        <button type="button" role="radio" data-set-mode="farm">Farm</button>
+        <button type="button" role="radio" data-set-mode="lab">Lab</button>
+      </div>
+      <button type="button" class="mb-btn" id="edit-toggle" title="Edit this page (Ctrl/⌘ E)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+        <span>Edit</span>
+      </button>
+      <button type="button" class="mb-btn mb-icon" id="theme-toggle" aria-label="Switch light or dark">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
+      </button>
+      <span class="mb-clock" aria-hidden="true"></span>
+    </div>
+  </header>
+
+  <main id="desk">
+
+    <!-- Welcome -->
+    <section class="win win-hero" id="welcome" data-dock="Welcome">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Welcome</div>
+      </div>
+      <div class="wbody hero">
+        <div class="hero-text">
+          <p class="eyebrow"><span data-v="farm" data-e>For barns, greenhouses and fields</span><span data-v="lab" data-e>For classrooms and research labs</span></p>
+          <h1><span data-v="farm" data-e>Sensors, alarms and automation for the farm.</span><span data-v="lab" data-e>Sensors, alarms and automation for the lab.</span></h1>
+          <p class="lede"><span data-v="farm" data-e>Wireless nodes read temperature, light and moisture. A Raspberry Pi hub stores it, runs your rules and sounds the alarm, even with the internet down.</span><span data-v="lab" data-e>Wireless nodes watch incubators, freezers and benches. A Raspberry Pi hub stores the readings, runs your rules and sounds the alarm, even with the internet down.</span></p>
+          <div class="cta">
+            <a class="btn btn-primary" href="#how" data-e>See how it works</a>
+            <a class="btn" href="https://github.com/JamesFennellBio/autonomous-farm-lab" data-e>View the code</a>
+          </div>
+        </div>
+        <div class="widget" aria-label="Example readings">
+          <div class="widget-head">
+            <span class="dot-live"></span>
+            <span data-v="farm" data-e>North barn</span><span data-v="lab" data-e>Biology lab 2</span>
+            <span class="widget-tag" data-e>demo data</span>
+          </div>
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label"><span data-v="farm" data-e>Barn temp</span><span data-v="lab" data-e>Incubator</span></div>
+              <div class="tile-value"><span class="live" data-live="temp">21.4</span><small>°C</small></div>
+            </div>
+            <div class="tile">
+              <div class="tile-label"><span data-v="farm" data-e>Soil moisture</span><span data-v="lab" data-e>Bench light</span></div>
+              <div class="tile-value"><span class="live" data-live="second">38</span><small><span data-v="farm">%</span><span data-v="lab">lux</span></small></div>
+            </div>
+            <div class="tile">
+              <div class="tile-label"><span data-v="farm" data-e>Water valve</span><span data-v="lab" data-e>Freezer alarm</span></div>
+              <div class="tile-value tile-state"><span data-v="farm" data-e>Open</span><span data-v="lab" data-e>Off</span></div>
+            </div>
+          </div>
+          <svg class="spark" viewBox="0 0 300 70" preserveAspectRatio="none" aria-hidden="true">
+            <defs><linearGradient id="sparkfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+            <path class="spark-area" d="M0 70Z"/>
+            <path class="spark-line" d="M0 35"/>
+          </svg>
+          <div class="widget-foot"><span data-e>Last 24 h</span><span class="widget-rule"><span data-v="farm" data-e>Rule: temp &gt; 30 °C → fans on</span><span data-v="lab" data-e>Rule: incubator &gt; 38 °C → siren</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="win" id="features" data-dock="Features">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Features</div>
+      </div>
+      <div class="wbody">
+        <h2 data-e>What it does</h2>
+        <div class="grid" data-list>
+          <article class="card">
+            <div class="icon i-green"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+            <h3 data-e>Any pin, any sensor</h3>
+            <p data-e>Each pin can be a switch, an output, an analog sensor or a DS18B20 thermometer. Set it in a config file.</p>
+          </article>
+          <article class="card">
+            <div class="icon i-teal"><svg viewBox="0 0 24 24"><path d="M5 12a10 10 0 0 1 14 0M8 15a6 6 0 0 1 8 0"/><circle cx="12" cy="18" r="1.4"/></svg></div>
+            <h3 data-e>LoRa and Wi-Fi</h3>
+            <p><span data-v="farm" data-e>Wi-Fi near the buildings. LoRa (915 MHz) for fields too far for Wi-Fi.</span><span data-v="lab" data-e>Wi-Fi inside the building. LoRa (915 MHz) for greenhouses and outbuildings.</span></p>
+          </article>
+          <article class="card">
+            <div class="icon i-dark"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+            <h3 data-e>Encrypted</h3>
+            <p data-e>Every packet is encrypted and signed. New keys every 10 messages or every hour.</p>
+          </article>
+          <article class="card">
+            <div class="icon i-lime"><svg viewBox="0 0 24 24"><path d="M9 4h6v4a2 2 0 1 1 0 4v4h-4a2 2 0 1 0-4 0H4V10h4a2 2 0 1 0 0-4H4"/></svg></div>
+            <h3 data-e>Recipes</h3>
+            <p data-e>"If this, then that" rules made from blocks on your phone. The hub runs them.</p>
+          </article>
+          <article class="card">
+            <div class="icon i-forest"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/></svg></div>
+            <h3 data-e>Works offline</h3>
+            <p data-e>The hub keeps 30 days of data and keeps running rules without the PC or the internet.</p>
+          </article>
+          <article class="card">
+            <div class="icon i-sage"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="13" height="10" rx="1.5"/><path d="M7 18h5"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg></div>
+            <h3 data-e>Desktop and phone</h3>
+            <p data-e>Charts, alerts, controls and pairing on the desktop app. Live readings and recipes on iPhone and Android.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="win" id="how" data-dock="How it works">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>How it works</div>
+      </div>
+      <div class="wbody">
+        <h2 data-e>From sensor to screen</h2>
+        <div class="flow">
+          <div class="flow-box">
+            <div class="flow-icon"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></div>
+            <b data-e>Nodes</b><small data-e>ESP32-C3</small>
+          </div>
+          <div class="flow-arrow"><span data-e>LoRa / Wi-Fi</span><i></i><em data-e>encrypted</em></div>
+          <div class="flow-box flow-hub">
+            <div class="flow-icon"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h4M7 14h2M15 12h2"/></svg></div>
+            <b data-e>Hub</b><small data-e>Raspberry Pi 3B</small>
+          </div>
+          <div class="flow-split">
+            <div class="flow-arrow"><span data-e>TCP</span><i></i><em data-e>encrypted</em></div>
+            <div class="flow-arrow"><span data-e>UDP</span><i></i><em data-e>encrypted</em></div>
+          </div>
+          <div class="flow-split">
+            <div class="flow-box">
+              <div class="flow-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg></div>
+              <b data-e>PC + desktop app</b><small data-e>full history</small>
+            </div>
+            <div class="flow-box">
+              <div class="flow-icon"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+              <b data-e>Phone app</b><small data-e>iOS + Android</small>
+            </div>
+          </div>
+        </div>
+        <ol class="steps" data-list>
+          <li><b data-e>Pair</b><span data-e>Hold the node's button, approve its code in the app.</span></li>
+          <li><b data-e>Read</b><span data-e>Nodes send readings every few seconds.</span></li>
+          <li><b data-e>React</b><span data-e>The hub checks your rules and switches outputs.</span></li>
+          <li><b data-e>Alert</b><span data-e>Alarms show on the desktop and the phone.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Recipes -->
+    <section class="win" id="recipes" data-dock="Recipes">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Recipes</div>
+      </div>
+      <div class="wbody split">
+        <div>
+          <h2 data-e>Rules without code</h2>
+          <p class="lede" data-e>Snap blocks together on the phone. The recipe is sent to the hub and runs there, day and night.</p>
+          <ul class="ticks" data-list>
+            <li data-e>Compare any sensor to a number</li>
+            <li data-e>Combine with and / or / not</li>
+            <li data-e>Switch outputs or send an alert</li>
+            <li data-e>"Otherwise" actions undo it when things settle</li>
+          </ul>
+        </div>
+        <div class="blocks" aria-label="Example recipe">
+          <div class="blk blk-hat"><span data-e>recipe</span> <b class="blk-field"><span data-v="farm" data-e>Cool the barn</span><span data-v="lab" data-e>Incubator guard</span></b></div>
+          <div class="blk blk-if">
+            <span data-e>if</span>
+            <span class="blk-field"><span data-v="farm" data-e>Barn temp</span><span data-v="lab" data-e>Incubator temp</span></span>
+            <span class="blk-op">&gt;</span>
+            <span class="blk-field blk-num"><span data-v="farm" data-e>30 °C</span><span data-v="lab" data-e>38 °C</span></span>
+          </div>
+          <div class="blk-mouth">
+            <div class="blk blk-do"><span data-e>set</span> <span class="blk-field"><span data-v="farm" data-e>Fans</span><span data-v="lab" data-e>Siren</span></span> <span class="blk-field blk-on" data-e>ON</span></div>
+            <div class="blk blk-alert"><span data-e>alert</span> <span class="blk-field"><span data-v="farm" data-e>"Barn too hot"</span><span data-v="lab" data-e>"Incubator over temp"</span></span></div>
+          </div>
+          <div class="blk blk-else"><span data-e>otherwise</span></div>
+          <div class="blk-mouth">
+            <div class="blk blk-do"><span data-e>set</span> <span class="blk-field"><span data-v="farm" data-e>Fans</span><span data-v="lab" data-e>Siren</span></span> <span class="blk-field blk-off" data-e>OFF</span></div>
+          </div>
+          <div class="blk blk-foot"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Security -->
+    <section class="win win-term" id="security" data-dock="Security">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Security — zsh</div>
+      </div>
+      <div class="wbody term">
+        <p class="term-cmd"><span class="term-prompt">hub@farmlab ~ %</span> <span data-e>security --summary</span></p>
+        <ul class="term-out" data-list>
+          <li><span class="ok">✓</span> <span data-e>X25519 key exchange, Ed25519 signatures</span></li>
+          <li><span class="ok">✓</span> <span data-e>ChaCha20-Poly1305 on every packet</span></li>
+          <li><span class="ok">✓</span> <span data-e>New session keys every 10 messages or 1 hour</span></li>
+          <li><span class="ok">✓</span> <span data-e>Replayed or old packets are dropped</span></li>
+          <li><span class="ok">✓</span> <span data-e>Every device approved by hand, pinned by its key</span></li>
+          <li><span class="ok">✓</span> <span data-e>Hub recovery from a 24-word phrase</span></li>
+        </ul>
+        <p class="term-cmd"><span class="term-prompt">hub@farmlab ~ %</span> <span class="caret"></span></p>
+      </div>
+    </section>
+
+    <!-- Hardware -->
+    <section class="win" id="hardware" data-dock="Hardware">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>System Information</div>
+      </div>
+      <div class="wbody">
+        <h2 data-e>Hardware and software</h2>
+        <dl class="specs" data-list>
+          <div><dt data-e>Nodes</dt><dd data-e>ESP32-C3, Rust (no_std)</dd></div>
+          <div><dt data-e>Radio</dt><dd data-e>SX1262 LoRa 915 MHz + 2.4 GHz Wi-Fi</dd></div>
+          <div><dt data-e>Hub</dt><dd data-e>Raspberry Pi 3B, Rust</dd></div>
+          <div><dt data-e>Storage</dt><dd data-e>SQLite: 30 days on the hub, everything on the PC</dd></div>
+          <div><dt data-e>Sensors</dt><dd><span data-v="farm" data-e>DS18B20 temperature, light, soil moisture, switches</span><span data-v="lab" data-e>DS18B20 temperature, light, door switches</span></dd></div>
+          <div><dt data-e>Outputs</dt><dd><span data-v="farm" data-e>Siren, solenoid water valve, fans (MOSFET / relay)</span><span data-v="lab" data-e>Siren, solenoid valve, relays (MOSFET / relay)</span></dd></div>
+          <div><dt data-e>Apps</dt><dd data-e>Electron desktop app, React Native phone app</dd></div>
+          <div><dt data-e>Cost per node</dt><dd data-e>$__ (fill in)</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- Photos -->
+    <section class="win" id="photos" data-dock="Photos">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Photos</div>
+      </div>
+      <div class="wbody">
+        <div class="gallery" data-list>
+          <figure><div class="photo" data-img><span class="photo-empty">Add a photo</span></div><figcaption data-e>The node</figcaption></figure>
+          <figure><div class="photo" data-img><span class="photo-empty">Add a photo</span></div><figcaption data-e>The hub</figcaption></figure>
+          <figure><div class="photo" data-img><span class="photo-empty">Add a photo</span></div><figcaption><span data-v="farm" data-e>In the barn</span><span data-v="lab" data-e>In the lab</span></figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contact -->
+    <section class="win" id="contact" data-dock="Contact">
+      <div class="titlebar">
+        <div class="lights"><button type="button" class="l l-close" aria-label="Close window"></button><button type="button" class="l l-min" aria-label="Collapse window"></button><button type="button" class="l l-zoom" aria-label="Widen window"></button></div>
+        <div class="wtitle" data-e>Contact</div>
+      </div>
+      <div class="wbody contact">
+        <div class="avatar" data-img><span class="photo-empty">Photo</span></div>
+        <div>
+          <h2 data-e>James Fennell</h2>
+          <p class="lede" data-e>School · chapter · city</p>
+          <div class="cta">
+            <a class="btn btn-primary" href="mailto:you@example.com" data-e>Email me</a>
+            <a class="btn" href="https://github.com/JamesFennellBio/autonomous-farm-lab" data-e>GitHub</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="dock" aria-label="Dock"></nav>
+</body>
+</html>

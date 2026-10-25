@@ -6,6 +6,7 @@
 - Phone app (iOS + Android) talks to the hub directly
 - Recipes (if-this-then-that) built with Blockly blocks on the phone, run on the hub
 - Demo channels: siren, solenoid, photoresistor, DS18B20 thermometer
+- Website: `website/` (Farm / Lab versions, editable in the browser)
 
 ## Radios / links
 - Node → hub: LoRa SX1262 (915 MHz, SF7) or Wi-Fi UDP (port 7300)

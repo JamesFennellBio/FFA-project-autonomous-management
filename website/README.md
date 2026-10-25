@@ -1,0 +1,21 @@
+# Website
+
+- Plain HTML/CSS/JS, no build step: `index.html`, `style.css`, `site.js`
+- Preview: `python3 -m http.server 8765 --directory website` → http://localhost:8765
+- Farm / Lab
+  - switch in the menu bar
+  - link straight to one: `?mode=farm` or `?mode=lab`
+  - text with two versions = `data-v="farm"` / `data-v="lab"` spans
+  - whole window for one only = title bar "Farm only" / "Lab only" in edit mode
+- Editing
+  - menu bar Edit, the pencil in the dock, Ctrl/⌘ E, or `?edit`
+  - click text to type; Enter = done, Shift+Enter = new line
+  - click a photo box → file, link or remove
+  - focus a button → "Link address…"
+  - hover a card / row → ← move, ⧉ copy, ✕ delete
+  - title bar → ↑ ↓ move window, Farm/Lab only, Hide
+  - panel → accent colour, wallpaper
+  - edits autosave in this browser only
+  - Export page → downloads `index.html` → replace `website/index.html`, commit
+  - photos from your computer get shrunk and stored inside `index.html`; big sets → put files in `website/img/` and use `img/name.jpg` as the link
+- Publish: `.github/workflows/pages.yml` on push to `main`; needs Settings → Pages → Source: GitHub Actions once
