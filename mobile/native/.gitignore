@@ -1,0 +1,9 @@
+# Everything uniffi-bindgen-react-native generates (rebuild with npm run ubrn:android / ubrn:ios).
+node_modules/
+src/generated/
+cpp/generated/
+android/build/
+android/.cxx/
+android/src/main/jniLibs/
+ios/build/
+*.xcframework

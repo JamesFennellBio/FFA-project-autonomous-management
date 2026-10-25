@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, NodeInfo, PendingPair, Reading, Rule, RuleInput, Status } from "./types";
+import type { Alert, NodeInfo, PendingPair, Phone, Reading, Rule, RuleInput, Status } from "./types";
 
 type RawResponse = { ok: boolean; status: number; data: unknown };
 
@@ -37,6 +37,8 @@ export const api = {
   pending: () => call<PendingPair[]>("GET", "/api/pairing/requests"),
   approve: (key: string, name?: string) => call("POST", `/api/pairing/requests/${key}/approve`, { name }),
   reject: (key: string) => call("POST", `/api/pairing/requests/${key}/reject`),
+  phones: () => call<Phone[]>("GET", "/api/phones"),
+  unpairPhone: (id: number) => call("DELETE", `/api/phones/${id}`),
   alerts: (unacked = false) => call<Alert[]>("GET", `/api/alerts?unacked=${unacked}`),
   ackAlert: (id: number) => call("POST", `/api/alerts/${id}/ack`),
   rules: () => call<Rule[]>("GET", "/api/rules"),

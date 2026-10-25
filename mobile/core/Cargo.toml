@@ -1,0 +1,24 @@
+[package]
+name = "ffa-mobile-core"
+version.workspace = true
+edition.workspace = true
+description = "Phone side of the hub link (pairing, handshake, encrypted requests over UDP), called from the React Native app through uniffi"
+
+[lib]
+name = "ffa_mobile_core"
+# lib: tests and examples. cdylib: Android (.so). staticlib: iOS (.a).
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+crypto-sharecrate.workspace = true
+uplink = { path = "../../uplink" }
+tokio.workspace = true
+serde_json.workspace = true
+thiserror = "2"
+# Must match the uniffi-bindgen-react-native version in mobile/native/package.json.
+uniffi = { version = "=0.31.2", features = ["tokio"] }
+
+[dev-dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true

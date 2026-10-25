@@ -1,19 +1,24 @@
-//! The hub's node-facing logic: pairing, handshakes, and turning frames into
-//! messages for the PC. No I/O here: frames come in, frames to send and
-//! messages for the PC go out. That keeps it easy to test.
+//! The hub's logic: pairing, handshakes, turning node frames into messages
+//! for the PC, running recipes, and answering the phone app (see `app`).
+//! No I/O here: frames come in, frames to send and messages for the PC go
+//! out. That keeps it easy to test.
+
+mod app;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use crypto_sharecrate::crypto::identity::Identity;
 use crypto_sharecrate::crypto::{handshake, pairing, responder::PeerSessions};
 use crypto_sharecrate::frame::{FRAME_LEN, FrameType, peek_node_id};
-use crypto_sharecrate::packet::Packet;
+use crypto_sharecrate::packet::{ChannelKind, Packet};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use uplink::{HubMsg, PcMsg, Transport};
+use uplink::{DeviceKind, HubMsg, PcMsg, Transport};
+
+use crate::recipes::{Action, Fired, Recipes};
 
 /// Where to send a reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,12 +26,14 @@ pub enum Link {
     Udp(SocketAddr),
     #[cfg_attr(not(feature = "lora"), allow(dead_code))]
     Lora,
+    /// The phone app's UDP port.
+    App(SocketAddr),
 }
 
 impl Link {
     pub fn transport(self) -> Transport {
         match self {
-            Link::Udp(_) => Transport::Wifi,
+            Link::Udp(_) | Link::App(_) => Transport::Wifi,
             Link::Lora => Transport::Lora,
         }
     }
@@ -40,13 +47,19 @@ const PAIR_FORWARD_MIN_GAP: i64 = 1;
 const MAX_PAIR_KEYS_TRACKED: usize = 1024;
 /// Max commands queued per node while it's out of reach.
 const MAX_QUEUED_COMMANDS: usize = 16;
-/// Per node: at most this many HELLOs per HELLO_WINDOW_SECS.
+/// Per node (or phone): at most this many HELLOs per HELLO_WINDOW_SECS.
 const HELLOS_PER_WINDOW: usize = 5;
 const HELLO_WINDOW_SECS: u64 = 10;
 /// Whole hub: at most this many Ed25519 verifications (HELLO + PAIR_REQUEST)
 /// per second, so a flood can't eat the Pi's CPU.
 const SIG_CHECKS_PER_SEC: u32 = 50;
+/// Nodes waiting for approval that the phone app can see.
+const MAX_SHOWN_PAIR_REQUESTS: usize = 16;
+const SHOWN_PAIR_REQUEST_TTL: i64 = 300;
+/// Longest node/channel name kept from the desktop app.
+const MAX_LABEL: usize = 32;
 
+/// A paired node or phone.
 struct NodeEntry {
     /// CRYPTO-REVIEW: pinned Ed25519 key from pairing.
     public_key: [u8; 32],
@@ -57,24 +70,106 @@ struct NodeEntry {
     recent_hellos: VecDeque<u64>,
 }
 
+impl NodeEntry {
+    fn new(public_key: [u8; 32]) -> Self {
+        Self {
+            public_key,
+            sessions: PeerSessions::new(),
+            link: None,
+            commands: VecDeque::new(),
+            recent_hellos: VecDeque::new(),
+        }
+    }
+}
+
 /// Saved in `paired.json` as soon as anything changes. Pairings are too
 /// important to wait for the daily flush.
 #[derive(Serialize, Deserialize, Default)]
 struct PairedFile {
     nodes: Vec<(u16, String)>,
     approved: Vec<(u16, String)>,
+    #[serde(default)]
+    phones: Vec<(u16, String)>,
+    #[serde(default)]
+    approved_phones: Vec<(u16, String)>,
+}
+
+/// Names from the desktop app (`labels.json`).
+#[derive(Serialize, Deserialize, Default)]
+struct Labels {
+    nodes: Vec<(u16, String)>,
+    channels: Vec<(u16, u8, String)>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ShownPairRequest {
+    public_key: String,
+    fingerprint: String,
+    transport: Transport,
+    seen_at: i64,
+}
+
+/// What the phone app shows. Rebuilt from the store when the hub starts.
+#[derive(Default)]
+struct Live {
+    /// node -> (channel, kind) from its last Announce
+    channels: HashMap<u16, Vec<(u8, u8)>>,
+    /// (node, channel) -> (value, unix ts)
+    values: HashMap<(u16, u8), (i32, i64)>,
+    last_seen: HashMap<u16, i64>,
+    labels: Labels,
+    /// Nodes waiting for approval. Oldest first.
+    pair_requests: VecDeque<ShownPairRequest>,
+}
+
+impl Live {
+    fn value(&self, node: u16, channel: u8) -> Option<i32> {
+        self.values.get(&(node, channel)).map(|v| v.0)
+    }
+
+    /// Some(true/false) if the node announced this channel, None if unknown.
+    fn is_output(&self, node: u16, channel: u8) -> Option<bool> {
+        let chans = self.channels.get(&node)?;
+        let (_, kind) = chans.iter().find(|(c, _)| *c == channel)?;
+        Some(ChannelKind::from_byte(*kind).is_ok_and(|k| k.is_output()))
+    }
+
+    fn node_name(&self, node: u16) -> String {
+        self.labels
+            .nodes
+            .iter()
+            .find(|(n, _)| *n == node)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_else(|| format!("Node {node}"))
+    }
+
+    fn channel_name(&self, node: u16, channel: u8) -> String {
+        self.labels
+            .channels
+            .iter()
+            .find(|(n, c, _)| *n == node && *c == channel)
+            .map(|(_, _, s)| s.clone())
+            .unwrap_or_else(|| format!("Channel {channel}"))
+    }
 }
 
 pub struct Hub {
     identity: Identity,
     nodes: HashMap<u16, NodeEntry>,
-    /// CRYPTO-REVIEW: keys a person approved in the app, waiting for the node's next PAIR_REQUEST.
+    phones: HashMap<u16, NodeEntry>,
+    /// CRYPTO-REVIEW: keys a person approved in the app, waiting for the
+    /// device's next PAIR_REQUEST. Nodes and phones are kept apart, so an
+    /// approved node key can never pair on the phone port or the other way round.
     approved: HashMap<[u8; 32], u16>,
+    approved_phones: HashMap<[u8; 32], u16>,
     last_pair_forward: HashMap<[u8; 32], i64>,
     last_any_pair_forward: i64,
     /// (second, signature checks done in that second)
     sig_budget: (u64, u32),
     paired_path: Option<PathBuf>,
+    labels_path: Option<PathBuf>,
+    live: Live,
+    recipes: Recipes,
 }
 
 #[derive(Default, Debug)]
@@ -98,29 +193,65 @@ fn hs_random() -> Result<([u8; 48], u32)> {
     Ok((hs, u32::from_le_bytes([r[48], r[49], r[50], r[51]])))
 }
 
+fn kind_name(kind: DeviceKind) -> &'static str {
+    match kind {
+        DeviceKind::Node => "node",
+        DeviceKind::Phone => "phone",
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    s.trim().chars().take(max).collect()
+}
+
 impl Hub {
-    pub fn new(seed: &[u8; 32], paired_path: Option<PathBuf>) -> Result<Self> {
+    /// `data_dir` holds paired.json, recipes.json and labels.json. `None`
+    /// keeps everything in memory (tests).
+    pub fn new(seed: &[u8; 32], data_dir: Option<&Path>) -> Result<Self> {
         let mut hub = Self {
             identity: Identity::from_seed(seed),
             nodes: HashMap::new(),
+            phones: HashMap::new(),
             approved: HashMap::new(),
+            approved_phones: HashMap::new(),
             last_pair_forward: HashMap::new(),
             last_any_pair_forward: i64::MIN,
             sig_budget: (0, 0),
-            paired_path,
+            paired_path: data_dir.map(|d| d.join("paired.json")),
+            labels_path: data_dir.map(|d| d.join("labels.json")),
+            live: Live::default(),
+            recipes: Recipes::load(data_dir.map(|d| d.join("recipes.json")))?,
         };
         if let Some(p) = &hub.paired_path
             && let Ok(s) = std::fs::read_to_string(p)
         {
             let f: PairedFile = serde_json::from_str(&s)?;
             for (id, k) in f.nodes {
-                hub.insert_node(id, uplink::key_from_hex(&k)?);
+                hub.nodes
+                    .insert(id, NodeEntry::new(uplink::key_from_hex(&k)?));
             }
             for (id, k) in f.approved {
                 hub.approved.insert(uplink::key_from_hex(&k)?, id);
             }
+            for (id, k) in f.phones {
+                hub.phones
+                    .insert(id, NodeEntry::new(uplink::key_from_hex(&k)?));
+            }
+            for (id, k) in f.approved_phones {
+                hub.approved_phones.insert(uplink::key_from_hex(&k)?, id);
+            }
         }
-        info!("hub has {} paired node(s)", hub.nodes.len());
+        if let Some(p) = &hub.labels_path
+            && let Ok(s) = std::fs::read_to_string(p)
+        {
+            hub.live.labels = serde_json::from_str(&s).unwrap_or_default();
+        }
+        info!(
+            "hub has {} paired node(s), {} phone(s), {} recipe(s)",
+            hub.nodes.len(),
+            hub.phones.len(),
+            hub.recipes.list().len()
+        );
         Ok(hub)
     }
 
@@ -128,34 +259,56 @@ impl Hub {
         self.identity.public_key()
     }
 
-    fn insert_node(&mut self, id: u16, public_key: [u8; 32]) {
-        self.nodes.insert(
-            id,
-            NodeEntry {
-                public_key,
-                sessions: PeerSessions::new(),
-                link: None,
-                commands: VecDeque::new(),
-                recent_hellos: VecDeque::new(),
-            },
-        );
+    /// Fills the phone app's view from the store after a restart.
+    pub fn restore_live(&mut self, msgs: Vec<HubMsg>) {
+        for m in msgs {
+            match m {
+                HubMsg::Announce {
+                    node_id,
+                    channels,
+                    ts,
+                } => {
+                    self.live.channels.insert(node_id, channels);
+                    self.seen(node_id, ts);
+                }
+                HubMsg::Reading {
+                    node_id,
+                    channel,
+                    value,
+                    ts,
+                } => {
+                    self.live.values.insert((node_id, channel), (value, ts));
+                    self.seen(node_id, ts);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn seen(&mut self, node_id: u16, ts: i64) {
+        let t = self.live.last_seen.entry(node_id).or_default();
+        *t = (*t).max(ts);
     }
 
     fn save(&self) -> Result<()> {
         let Some(p) = &self.paired_path else {
             return Ok(());
         };
-        let f = PairedFile {
-            nodes: self
-                .nodes
-                .iter()
+        let list = |m: &HashMap<u16, NodeEntry>| {
+            m.iter()
                 .map(|(id, n)| (*id, uplink::key_to_hex(&n.public_key)))
-                .collect(),
-            approved: self
-                .approved
-                .iter()
+                .collect()
+        };
+        let approved = |m: &HashMap<[u8; 32], u16>| {
+            m.iter()
                 .map(|(k, id)| (*id, uplink::key_to_hex(k)))
-                .collect(),
+                .collect()
+        };
+        let f = PairedFile {
+            nodes: list(&self.nodes),
+            approved: approved(&self.approved),
+            phones: list(&self.phones),
+            approved_phones: approved(&self.approved_phones),
         };
         let tmp = p.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(&f)?)?;
@@ -200,45 +353,9 @@ impl Hub {
                 if !self.take_sig_budget(mono) {
                     anyhow::bail!("signature budget used up; pair request dropped");
                 }
-                self.on_pair_request(frame, link, unix, out)?
+                self.on_pair_request(frame, link, unix, DeviceKind::Node, out)?
             }
-            FrameType::Hello => {
-                let node_id =
-                    handshake::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
-                // Cheap checks first: unknown node, per-node rate, global budget.
-                // The per-node window only counts HELLOs that verified (below),
-                // so forged HELLOs can't use up a real node's allowance (FYEO
-                // scan 2). Forged ones still cost the global budget, which is
-                // the cap on how much CPU a radio attacker can burn.
-                let node = self
-                    .nodes
-                    .get_mut(&node_id)
-                    .ok_or_else(|| anyhow::anyhow!("HELLO from unknown node {node_id}"))?;
-                while node
-                    .recent_hellos
-                    .front()
-                    .is_some_and(|t| mono.saturating_sub(*t) >= HELLO_WINDOW_SECS)
-                {
-                    node.recent_hellos.pop_front();
-                }
-                if node.recent_hellos.len() >= HELLOS_PER_WINDOW {
-                    anyhow::bail!("too many HELLOs from node {node_id}");
-                }
-                if !self.take_sig_budget(mono) {
-                    anyhow::bail!("signature budget used up; HELLO dropped");
-                }
-                let identity = &self.identity;
-                let node = self.nodes.get_mut(&node_id).expect("checked above");
-                let (rand, epoch) = hs_random()?;
-                // CRYPTO-REVIEW: verifies the node's signature with its pinned key;
-                // the new session waits as pending until key confirmation.
-                let ack = node
-                    .sessions
-                    .on_hello(frame, &node.public_key, identity, &rand, epoch, mono)
-                    .map_err(|e| anyhow::anyhow!("hello from node {node_id}: {e}"))?;
-                node.recent_hellos.push_back(mono);
-                out.frames.push((link, ack.to_vec()));
-            }
+            FrameType::Hello => self.on_hello(DeviceKind::Node, frame, link, mono, out)?,
             t if t.is_encrypted() && frame.len() == FRAME_LEN => {
                 let node_id = peek_node_id(frame).unwrap_or(0);
                 let node = self
@@ -266,23 +383,85 @@ impl Hub {
                 // A node only listens right after it sends (on LoRa), so
                 // queued commands go out now.
                 deliver(node_id, node, mono, unix, out);
+                self.observe(node_id, &packet, mono, unix, out);
             }
             other => anyhow::bail!("unexpected {other:?}"),
         }
         Ok(())
     }
 
-    /// CRYPTO-REVIEW: hub side of node pairing; see crypto::pairing for the trust model.
+    /// CRYPTO-REVIEW: HELLO from a paired node or phone. The signature is
+    /// checked with the pinned key; the new session waits as pending until
+    /// key confirmation.
+    fn on_hello(
+        &mut self,
+        kind: DeviceKind,
+        frame: &[u8],
+        link: Link,
+        mono: u64,
+        out: &mut Output,
+    ) -> Result<()> {
+        let id = handshake::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let what = kind_name(kind);
+        // Cheap checks first: unknown device, per-device rate, global budget.
+        // The per-device window only counts HELLOs that verified (below),
+        // so forged HELLOs can't use up a real device's allowance (FYEO
+        // scan 2). Forged ones still cost the global budget, which is the
+        // cap on how much CPU an attacker can burn.
+        let peers = match kind {
+            DeviceKind::Node => &mut self.nodes,
+            DeviceKind::Phone => &mut self.phones,
+        };
+        let peer = peers
+            .get_mut(&id)
+            .ok_or_else(|| anyhow::anyhow!("HELLO from unknown {what} {id}"))?;
+        while peer
+            .recent_hellos
+            .front()
+            .is_some_and(|t| mono.saturating_sub(*t) >= HELLO_WINDOW_SECS)
+        {
+            peer.recent_hellos.pop_front();
+        }
+        if peer.recent_hellos.len() >= HELLOS_PER_WINDOW {
+            anyhow::bail!("too many HELLOs from {what} {id}");
+        }
+        if !self.take_sig_budget(mono) {
+            anyhow::bail!("signature budget used up; HELLO dropped");
+        }
+        let identity = &self.identity;
+        let peer = match kind {
+            DeviceKind::Node => self.nodes.get_mut(&id),
+            DeviceKind::Phone => self.phones.get_mut(&id),
+        }
+        .expect("checked above");
+        let (rand, epoch) = hs_random()?;
+        let ack = peer
+            .sessions
+            .on_hello(frame, &peer.public_key, identity, &rand, epoch, mono)
+            .map_err(|e| anyhow::anyhow!("hello from {what} {id}: {e}"))?;
+        peer.recent_hellos.push_back(mono);
+        out.frames.push((link, ack.to_vec()));
+        Ok(())
+    }
+
+    /// CRYPTO-REVIEW: hub side of pairing for nodes and phones; see
+    /// crypto::pairing for the trust model. Both need a person's approval
+    /// in the desktop app first.
     fn on_pair_request(
         &mut self,
         frame: &[u8],
         link: Link,
         unix: i64,
+        kind: DeviceKind,
         out: &mut Output,
     ) -> Result<()> {
         let pk =
             pairing::parse_pair_request(frame).map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
-        if let Some((id, _)) = self.nodes.iter().find(|(_, n)| n.public_key == pk) {
+        let (peers, approved) = match kind {
+            DeviceKind::Node => (&mut self.nodes, &mut self.approved),
+            DeviceKind::Phone => (&mut self.phones, &mut self.approved_phones),
+        };
+        if let Some((id, _)) = peers.iter().find(|(_, n)| n.public_key == pk) {
             // Already paired; our accept was probably lost. Send it again.
             out.frames.push((
                 link,
@@ -290,17 +469,26 @@ impl Hub {
             ));
             return Ok(());
         }
-        if let Some(id) = self.approved.remove(&pk) {
-            info!("pairing node {id} ({})", uplink::fingerprint_hex(&pk));
-            self.insert_node(id, pk);
+        if let Some(id) = approved.remove(&pk) {
+            info!(
+                "pairing {} {id} ({})",
+                kind_name(kind),
+                uplink::fingerprint_hex(&pk)
+            );
+            peers.insert(id, NodeEntry::new(pk));
             self.save()?;
+            let key = uplink::key_to_hex(&pk);
+            self.live.pair_requests.retain(|r| r.public_key != key);
             out.frames
                 .push((link, pairing::pair_accept(&self.identity, &pk, id).to_vec()));
             return Ok(());
         }
+        if kind == DeviceKind::Node {
+            self.show_pair_request(&pk, link.transport(), unix);
+        }
         // Rate limits (findings 02/08): per key, overall, and a cap on how
         // many keys we track. Requests that don't fit are just dropped; the
-        // node keeps asking every few seconds while its button window is open.
+        // device keeps asking every few seconds while its pairing window is open.
         let due = self
             .last_pair_forward
             .get(&pk)
@@ -317,8 +505,139 @@ impl Hub {
                 public_key: uplink::key_to_hex(&pk),
                 fingerprint: uplink::fingerprint_hex(&pk),
                 transport: link.transport(),
+                kind,
                 ts: unix,
             });
+        }
+        Ok(())
+    }
+
+    /// Remembers a waiting node so the phone app can list it (capped and
+    /// expiring, since anyone can make pairing requests).
+    fn show_pair_request(&mut self, pk: &[u8; 32], transport: Transport, unix: i64) {
+        let list = &mut self.live.pair_requests;
+        let key = uplink::key_to_hex(pk);
+        list.retain(|r| r.public_key != key && unix - r.seen_at < SHOWN_PAIR_REQUEST_TTL);
+        if list.len() >= MAX_SHOWN_PAIR_REQUESTS {
+            list.pop_front();
+        }
+        list.push_back(ShownPairRequest {
+            public_key: key,
+            fingerprint: uplink::fingerprint_hex(pk),
+            transport,
+            seen_at: unix,
+        });
+    }
+
+    /// Keeps the phone app's view up to date and runs recipes.
+    fn observe(&mut self, node_id: u16, p: &Packet, mono: u64, unix: i64, out: &mut Output) {
+        self.seen(node_id, unix);
+        let mut changed = Vec::new();
+        match p {
+            Packet::Data { .. } => {
+                for r in p.readings() {
+                    self.live
+                        .values
+                        .insert((node_id, r.channel), (r.value, unix));
+                    changed.push(r.channel);
+                }
+            }
+            // An acked command is the output's new state.
+            Packet::Ack { channel, value } => {
+                self.live.values.insert((node_id, *channel), (*value, unix));
+                changed.push(*channel);
+            }
+            Packet::Announce { .. } => {
+                self.live.channels.insert(
+                    node_id,
+                    p.channels()
+                        .iter()
+                        .map(|c| (c.channel, c.kind as u8))
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+        for ch in changed {
+            let live = &self.live;
+            let fired = self
+                .recipes
+                .on_reading(node_id, ch, |n, c| live.value(n, c));
+            self.run(fired, mono, unix, out);
+        }
+    }
+
+    /// Runs the actions of recipes that fired.
+    fn run(&mut self, fired: Vec<Fired>, mono: u64, unix: i64, out: &mut Output) {
+        for f in fired {
+            info!("recipe {} \"{}\" fired", f.id, f.name);
+            for a in f.actions {
+                match a {
+                    Action::Set {
+                        node,
+                        channel,
+                        value,
+                    } => {
+                        let src = format!("recipe:{}", f.id);
+                        if let Err(e) =
+                            self.queue_command((node, channel, value), Some(src), mono, unix, out)
+                        {
+                            warn!("recipe {}: {e}", f.id);
+                        }
+                    }
+                    Action::Alert { text } => out.to_pc.push(HubMsg::RecipeAlert {
+                        recipe_id: f.id,
+                        name: f.name.clone(),
+                        text,
+                        ts: unix,
+                    }),
+                }
+            }
+        }
+    }
+
+    /// Queues a command for a node and sends it right away if it's on Wi-Fi.
+    /// `source` is set for commands that start on the hub (phone, recipe),
+    /// so the PC can log them.
+    fn queue_command(
+        &mut self,
+        (node_id, channel, value): (u16, u8, i32),
+        source: Option<String>,
+        mono: u64,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<(), String> {
+        let Some(node) = self.nodes.get_mut(&node_id) else {
+            return Err(format!("no node {node_id}"));
+        };
+        if let Some(source) = source {
+            out.to_pc.push(HubMsg::CommandRequested {
+                node_id,
+                channel,
+                value,
+                source,
+                ts: unix,
+            });
+        }
+        // A newer command for the same channel replaces an older one still queued.
+        node.commands.retain(|(c, _)| *c != channel);
+        if node.commands.len() >= MAX_QUEUED_COMMANDS
+            && let Some((c, v)) = node.commands.pop_front()
+        {
+            // Tell the PC so the app can show it failed (finding 30).
+            warn!("node {node_id} command queue full; dropped ch {c} = {v}");
+            out.to_pc.push(HubMsg::CommandDropped {
+                node_id,
+                channel: c,
+                value: v,
+                ts: unix,
+            });
+        }
+        node.commands.push_back((channel, value));
+        // Wi-Fi nodes listen all the time, so send now. LoRa nodes get
+        // it in the receive window after their next uplink.
+        if matches!(node.link, Some(Link::Udp(_))) {
+            deliver(node_id, node, mono, unix, out);
         }
         Ok(())
     }
@@ -331,19 +650,24 @@ impl Hub {
             PcMsg::ApprovePair {
                 public_key,
                 node_id,
+                kind,
             } => match uplink::key_from_hex(&public_key) {
                 Ok(pk) => {
-                    // CRYPTO-REVIEW: never silently re-point a node id at a new
+                    let what = kind_name(kind);
+                    let (peers, approved) = match kind {
+                        DeviceKind::Node => (&self.nodes, &mut self.approved),
+                        DeviceKind::Phone => (&self.phones, &mut self.approved_phones),
+                    };
+                    // CRYPTO-REVIEW: never silently re-point an id at a new
                     // key, or one key at two ids (findings 22/25).
-                    let conflict = match self.nodes.get(&node_id) {
+                    let conflict = match peers.get(&node_id) {
                         Some(n) if n.public_key != pk => Some(format!(
-                            "node id {node_id} is already paired to another device"
+                            "{what} id {node_id} is already paired to another device"
                         )),
-                        _ => self
-                            .nodes
+                        _ => peers
                             .iter()
                             .find(|(id, n)| n.public_key == pk && **id != node_id)
-                            .map(|(id, _)| format!("this device is already paired as node {id}")),
+                            .map(|(id, _)| format!("this device is already paired as {what} {id}")),
                     };
                     if let Some(reason) = conflict {
                         warn!("refusing approval: {reason}");
@@ -355,22 +679,59 @@ impl Hub {
                         });
                         return out;
                     }
-                    self.approved.retain(|_, id| *id != node_id);
-                    self.approved.insert(pk, node_id);
+                    approved.retain(|_, id| *id != node_id);
+                    approved.insert(pk, node_id);
                     if let Err(e) = self.save() {
                         warn!("saving pairings: {e:#}");
                     }
-                    info!("node {node_id} approved; waiting for its next pair request");
+                    info!("{what} {node_id} approved; waiting for its next pair request");
                 }
                 Err(e) => warn!("bad approve key: {e:#}"),
             },
-            PcMsg::Unpair { node_id } => {
-                self.nodes.remove(&node_id);
-                // Also forget an approval still waiting for that id, or the
-                // deleted device could still pair later.
-                self.approved.retain(|_, id| *id != node_id);
+            PcMsg::Unpair { node_id, kind } => {
+                match kind {
+                    DeviceKind::Node => {
+                        self.nodes.remove(&node_id);
+                        // Also forget an approval still waiting for that id, or the
+                        // deleted device could still pair later.
+                        self.approved.retain(|_, id| *id != node_id);
+                        self.live.channels.remove(&node_id);
+                        self.live.values.retain(|(n, _), _| *n != node_id);
+                        self.live.last_seen.remove(&node_id);
+                        let users = self.recipes.uses_node(node_id);
+                        if !users.is_empty() {
+                            warn!(
+                                "node {node_id} unpaired; these recipes use it and won't work: {}",
+                                users.join(", ")
+                            );
+                        }
+                    }
+                    DeviceKind::Phone => {
+                        self.phones.remove(&node_id);
+                        self.approved_phones.retain(|_, id| *id != node_id);
+                    }
+                }
                 if let Err(e) = self.save() {
                     warn!("saving pairings: {e:#}");
+                }
+            }
+            PcMsg::Labels { nodes, channels } => {
+                self.live.labels = Labels {
+                    nodes: nodes
+                        .into_iter()
+                        .map(|(n, s)| (n, truncate(&s, MAX_LABEL)))
+                        .collect(),
+                    channels: channels
+                        .into_iter()
+                        .map(|(n, c, s)| (n, c, truncate(&s, MAX_LABEL)))
+                        .collect(),
+                };
+                if let Some(p) = &self.labels_path
+                    && let Err(e) = serde_json::to_vec(&self.live.labels)
+                        .map_err(anyhow::Error::from)
+                        .and_then(|b| Ok(std::fs::write(p, b)?))
+                {
+                    warn!("saving labels: {e:#}");
                 }
             }
             PcMsg::Command {
@@ -378,29 +739,10 @@ impl Hub {
                 channel,
                 value,
             } => {
-                let Some(node) = self.nodes.get_mut(&node_id) else {
-                    warn!("command for unknown node {node_id}");
-                    return out;
-                };
-                // A newer command for the same channel replaces an older one still queued.
-                node.commands.retain(|(c, _)| *c != channel);
-                if node.commands.len() >= MAX_QUEUED_COMMANDS
-                    && let Some((c, v)) = node.commands.pop_front()
+                if let Err(e) =
+                    self.queue_command((node_id, channel, value), None, mono, unix, &mut out)
                 {
-                    // Tell the PC so the app can show it failed (finding 30).
-                    warn!("node {node_id} command queue full; dropped ch {c} = {v}");
-                    out.to_pc.push(HubMsg::CommandDropped {
-                        node_id,
-                        channel: c,
-                        value: v,
-                        ts: unix,
-                    });
-                }
-                node.commands.push_back((channel, value));
-                // Wi-Fi nodes listen all the time, so send now. LoRa nodes get
-                // it in the receive window after their next uplink.
-                if matches!(node.link, Some(Link::Udp(_))) {
-                    deliver(node_id, node, mono, unix, &mut out);
+                    warn!("command from PC: {e}");
                 }
             }
         }
@@ -517,6 +859,7 @@ mod tests {
             PcMsg::ApprovePair {
                 public_key: public_key.clone(),
                 node_id: 4,
+                kind: DeviceKind::Node,
             },
             0,
             100,
@@ -581,6 +924,7 @@ mod tests {
             PcMsg::ApprovePair {
                 public_key: uplink::key_to_hex(&node.public_key()),
                 node_id: id,
+                kind: DeviceKind::Node,
             },
             0,
             0,
@@ -605,6 +949,7 @@ mod tests {
             PcMsg::ApprovePair {
                 public_key: uplink::key_to_hex(&b.public_key()),
                 node_id: 1,
+                kind: DeviceKind::Node,
             },
             0,
             0,
@@ -721,11 +1066,19 @@ mod tests {
             PcMsg::ApprovePair {
                 public_key: uplink::key_to_hex(&node.public_key()),
                 node_id: 7,
+                kind: DeviceKind::Node,
             },
             0,
             0,
         );
-        hub.on_pc(PcMsg::Unpair { node_id: 7 }, 0, 0);
+        hub.on_pc(
+            PcMsg::Unpair {
+                node_id: 7,
+                kind: DeviceKind::Node,
+            },
+            0,
+            0,
+        );
         let out = hub.on_frame(&node.pair_request(), udp(), 0, 100);
         assert!(out.frames.is_empty(), "no PAIR_ACCEPT after unpair");
     }

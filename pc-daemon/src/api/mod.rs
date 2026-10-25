@@ -14,6 +14,8 @@
 //! | GET    | /api/readings?node_id&channel&since&until&limit | history |
 //! | GET    | /api/alerts?unacked=true                      | alerts |
 //! | POST   | /api/alerts/{id}/ack                          | acknowledge |
+//! | GET    | /api/phones                                   | phones paired with the hub |
+//! | DELETE | /api/phones/{id}                              | unpair a phone |
 //! | GET    | /api/rules  · POST /api/rules                 | automation rules |
 //! | PUT    | /api/rules/{id} · DELETE /api/rules/{id}      | |
 
@@ -22,12 +24,12 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router, middleware};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use uplink::{PcMsg, unix_now};
+use uplink::{DeviceKind, PcMsg, unix_now};
 
 use crate::state::{AppState, PairKind};
 use crate::{auth, db};
@@ -42,6 +44,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/nodes/{id}", patch(rename_node).delete(delete_node))
         .route("/api/nodes/{id}/channels/{ch}", patch(rename_channel))
         .route("/api/nodes/{id}/channels/{ch}/command", post(command))
+        .route("/api/phones", get(list_phones))
+        .route("/api/phones/{id}", delete(delete_phone))
         .route("/api/readings", get(readings))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/{id}/ack", post(ack_alert))
@@ -54,6 +58,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+#[derive(Debug)]
 pub struct ApiError(StatusCode, String);
 
 impl IntoResponse for ApiError {
@@ -65,6 +70,12 @@ impl IntoResponse for ApiError {
 impl<E: Into<anyhow::Error>> From<E> for ApiError {
     fn from(e: E) -> Self {
         ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{:#}", e.into()))
+    }
+}
+
+impl ApiError {
+    pub fn message(&self) -> &str {
+        &self.1
     }
 }
 
@@ -106,20 +117,72 @@ struct NameBody {
 /// CRYPTO-REVIEW: the human approval step of pairing. A device's key is only
 /// trusted after someone clicks Approve on its fingerprint here.
 async fn approve(State(s): St, Path(key): Path<String>, body: Option<Json<NameBody>>) -> ApiResult {
-    let p = s.pending.lock().unwrap().remove(&key).ok_or_else(|| {
+    let name = body.and_then(|b| b.0.name);
+    approve_key(&s, &key, name, false).map(Json)
+}
+
+/// Approves a waiting device. `nodes_only` is set when a paired phone asked
+/// (through the hub): a phone may approve nodes, but never a hub or another phone.
+///
+/// CRYPTO-REVIEW: only keys that are in the pending list (they sent a signed
+/// pairing request in the last few minutes) can be approved.
+pub(crate) fn approve_key(
+    s: &AppState,
+    key: &str,
+    name: Option<String>,
+    nodes_only: bool,
+) -> Result<Value, ApiError> {
+    let name = name.filter(|n| !n.trim().is_empty());
+    let mut pending = s.pending.lock().unwrap();
+    if nodes_only && pending.get(key).is_some_and(|p| p.kind != PairKind::Node) {
+        return Err(err(StatusCode::FORBIDDEN, "phones can only approve nodes"));
+    }
+    let p = pending.remove(key).ok_or_else(|| {
         err(
             StatusCode::NOT_FOUND,
             "no such pairing request (it may have expired)",
         )
     })?;
+    drop(pending);
     let pk = uplink::key_from_hex(&p.public_key)?;
     match p.kind {
         PairKind::Hub => {
             *s.approved_hub.lock().unwrap() = Some(pk);
-            Ok(Json(json!({ "ok": true, "kind": "hub" })))
+            Ok(json!({ "ok": true, "kind": "hub" }))
+        }
+        PairKind::Phone => {
+            let phone_id = {
+                let conn = s.db.lock().unwrap();
+                let existing: Option<i64> = conn
+                    .query_row(
+                        "SELECT id FROM phones WHERE public_key = ?1",
+                        [&p.public_key],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                match existing {
+                    Some(id) => id as u16,
+                    None => {
+                        let id = db::next_phone_id(&conn)?;
+                        conn.execute(
+                            "INSERT INTO phones (id, public_key, name, paired_at) VALUES (?1, ?2, ?3, ?4)",
+                            params![id, p.public_key, name.unwrap_or_else(|| format!("Phone {id}")), unix_now()],
+                        )?;
+                        id
+                    }
+                }
+            };
+            if !s.send_to_hub(PcMsg::ApprovePair {
+                public_key: p.public_key.clone(),
+                node_id: phone_id,
+                kind: DeviceKind::Phone,
+            }) {
+                s.add_pending(p);
+                return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
+            }
+            Ok(json!({ "ok": true, "kind": "phone", "phone_id": phone_id }))
         }
         PairKind::Node => {
-            let name = body.and_then(|b| b.0.name).filter(|n| !n.trim().is_empty());
             let node_id = {
                 let conn = s.db.lock().unwrap();
                 let existing: Option<i64> = conn
@@ -144,15 +207,62 @@ async fn approve(State(s): St, Path(key): Path<String>, body: Option<Json<NameBo
             if !s.send_to_hub(PcMsg::ApprovePair {
                 public_key: p.public_key.clone(),
                 node_id,
+                kind: DeviceKind::Node,
             }) {
                 s.add_pending(p);
                 return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
             }
-            Ok(Json(
-                json!({ "ok": true, "kind": "node", "node_id": node_id }),
-            ))
+            send_labels(s);
+            Ok(json!({ "ok": true, "kind": "node", "node_id": node_id }))
         }
     }
+}
+
+/// Sends node/channel names to the hub for the phone app (skipped if the hub
+/// is offline; it gets them again when it connects).
+fn send_labels(s: &AppState) {
+    let labels = db::labels(&s.db.lock().unwrap());
+    match labels {
+        Ok(m) => {
+            s.send_to_hub(m);
+        }
+        Err(e) => tracing::warn!("reading labels: {e:#}"),
+    }
+}
+
+async fn list_phones(State(s): St) -> ApiResult {
+    let conn = s.db.lock().unwrap();
+    let phones: Vec<Value> = conn
+        .prepare("SELECT id, public_key, name, paired_at FROM phones ORDER BY id")?
+        .query_map([], |r| {
+            let pk: String = r.get(1)?;
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "fingerprint": uplink::key_from_hex(&pk).map(|k| uplink::fingerprint_hex(&k)).unwrap_or_default(),
+                "name": r.get::<_, String>(2)?,
+                "paired_at": r.get::<_, i64>(3)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Json(json!(phones)))
+}
+
+/// Unpairs a phone. Like nodes, the hub must hear about it, so this refuses
+/// while the hub is offline (a lost phone must really stop working).
+async fn delete_phone(State(s): St, Path(id): Path<u16>) -> ApiResult {
+    if !s.send_to_hub(PcMsg::Unpair {
+        node_id: id,
+        kind: DeviceKind::Phone,
+    }) {
+        return Err(err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hub is offline; it must be connected to unpair a phone",
+        ));
+    }
+    s.db.lock()
+        .unwrap()
+        .execute("DELETE FROM phones WHERE id = ?1", [id])?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn reject(State(s): St, Path(key): Path<String>) -> ApiResult {
@@ -212,6 +322,7 @@ async fn rename_node(State(s): St, Path(id): Path<u16>, Json(b): Json<NameBody>)
     if n == 0 {
         return Err(err(StatusCode::NOT_FOUND, "no such node"));
     }
+    send_labels(&s);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -220,7 +331,10 @@ async fn rename_node(State(s): St, Path(id): Path<u16>, Json(b): Json<NameBody>)
 /// go too, so they can never act on another device (finding 16). Its id is
 /// never handed out again (see db::next_node_id).
 async fn delete_node(State(s): St, Path(id): Path<u16>) -> ApiResult {
-    if !s.send_to_hub(PcMsg::Unpair { node_id: id }) {
+    if !s.send_to_hub(PcMsg::Unpair {
+        node_id: id,
+        kind: DeviceKind::Node,
+    }) {
         return Err(err(
             StatusCode::SERVICE_UNAVAILABLE,
             "hub is offline; it must be connected to unpair a node",
@@ -247,6 +361,7 @@ async fn rename_channel(
         "UPDATE channels SET name = ?3 WHERE node_id = ?1 AND channel = ?2",
         params![id, ch, name],
     )?;
+    send_labels(&s);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -628,5 +743,56 @@ mod tests {
                 value: 0
             }
         );
+    }
+
+    #[test]
+    fn phones_pair_with_their_own_ids_and_can_only_approve_nodes() {
+        use crate::state::PendingPair;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        let state = AppState::new(conn, &[9u8; 32], "t".repeat(64));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        state.hub.lock().unwrap().tx = Some(tx);
+        let pending = |kind, key: &str| PendingPair {
+            kind,
+            public_key: key.to_string(),
+            fingerprint: String::new(),
+            transport: None,
+            seen_at: unix_now(),
+        };
+        let phone_key = "11".repeat(32);
+        let node_key = "22".repeat(32);
+        state.add_pending(pending(PairKind::Phone, &phone_key));
+        state.add_pending(pending(PairKind::Node, &node_key));
+
+        // A phone (through the hub) can't approve another phone...
+        let e = approve_key(&state, &phone_key, None, true).unwrap_err();
+        assert_eq!(e.0, StatusCode::FORBIDDEN);
+        // ...but the desktop app can, and phone ids are separate from node ids.
+        let v = approve_key(&state, &phone_key, Some("Pixel".into()), false).unwrap();
+        assert_eq!(v["phone_id"], 1);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            PcMsg::ApprovePair {
+                public_key: phone_key,
+                node_id: 1,
+                kind: DeviceKind::Phone
+            }
+        );
+        // A phone can approve a waiting node.
+        let v = approve_key(&state, &node_key, Some("Barn".into()), true).unwrap();
+        assert_eq!(v["node_id"], 1);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            PcMsg::ApprovePair {
+                kind: DeviceKind::Node,
+                ..
+            }
+        ));
+        assert!(
+            matches!(rx.try_recv().unwrap(), PcMsg::Labels { nodes, .. } if nodes == vec![(1, "Barn".to_string())])
+        );
+        // Nothing left to approve.
+        assert!(approve_key(&state, &node_key, None, true).is_err());
     }
 }

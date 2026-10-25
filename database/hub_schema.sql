@@ -13,3 +13,10 @@ CREATE TABLE IF NOT EXISTS outbox (
 );
 CREATE INDEX IF NOT EXISTS outbox_unsent ON outbox (forwarded, id);
 CREATE INDEX IF NOT EXISTS outbox_ts ON outbox (ts);
+
+-- The phone app reads history and alerts straight out of the outbox (no
+-- second copy of every reading in RAM). These indexes keep that fast.
+CREATE INDEX IF NOT EXISTS outbox_readings ON outbox (
+    json_extract(json, '$.node_id'), json_extract(json, '$.channel'), ts
+) WHERE json_extract(json, '$.type') = 'reading';
+CREATE INDEX IF NOT EXISTS outbox_types ON outbox (json_extract(json, '$.type'), id);

@@ -108,6 +108,40 @@ pub fn next_node_id(conn: &Connection) -> Result<u16> {
     Ok(id as u16)
 }
 
+/// Next phone id. Like node ids, never reused.
+pub fn next_phone_id(conn: &Connection) -> Result<u16> {
+    let counter: i64 = conn
+        .query_row(
+            "SELECT value FROM counters WHERE name = 'phone_id'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    let used: i64 = conn.query_row("SELECT COALESCE(MAX(id), 0) FROM phones", [], |r| r.get(0))?;
+    let id = counter.max(used) + 1;
+    anyhow::ensure!(id < 0xFFFF, "no phone ids left");
+    conn.execute(
+        "INSERT INTO counters (name, value) VALUES ('phone_id', ?1)
+         ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+        [id],
+    )?;
+    Ok(id as u16)
+}
+
+/// Node and channel names for the hub (the phone app shows them).
+pub fn labels(conn: &Connection) -> Result<PcMsg> {
+    let nodes = conn
+        .prepare("SELECT id, name FROM nodes ORDER BY id")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let channels = conn
+        .prepare("SELECT node_id, channel, name FROM channels ORDER BY node_id, channel")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(PcMsg::Labels { nodes, channels })
+}
+
 /// Marks the newest matching command with `status`, moving only forward.
 fn set_command_status(
     conn: &Connection,
@@ -274,8 +308,24 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<Pc
                 ],
             )?;
         }
+        // Started on the hub by a phone or a recipe; the hub's CommandSent /
+        // CommandAcked for it follow and move it along like any other.
+        HubMsg::CommandRequested {
+            node_id,
+            channel,
+            value,
+            source,
+            ts,
+        } => insert_command(conn, *node_id, *channel, *value, source, *ts)?,
+        HubMsg::RecipeAlert { name, text, ts, .. } => {
+            conn.execute(
+                "INSERT INTO alerts (node_id, code, message, ts) VALUES (NULL, 103, ?1, ?2)",
+                params![format!("Recipe \"{name}\": {text}"), ts],
+            )?;
+        }
         // Handled by hub_link (they update live state, not the DB).
-        HubMsg::PairRequest { .. } | HubMsg::Heartbeat { .. } => {}
+        HubMsg::PairRequest { .. } | HubMsg::Heartbeat { .. } | HubMsg::ApproveRequested { .. } => {
+        }
     }
     conn.execute("UPDATE hubs SET last_seq = MAX(last_seq, ?1)", params![seq])?;
     Ok(out)

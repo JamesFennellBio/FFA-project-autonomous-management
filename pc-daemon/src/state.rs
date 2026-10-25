@@ -17,6 +17,7 @@ pub const MAX_PENDING: usize = 32;
 pub enum PairKind {
     Hub,
     Node,
+    Phone,
 }
 
 #[derive(Debug, Clone, Serialize)]

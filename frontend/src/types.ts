@@ -37,11 +37,18 @@ export interface Status {
 }
 
 export interface PendingPair {
-  kind: "hub" | "node";
+  kind: "hub" | "node" | "phone";
   public_key: string;
   fingerprint: string;
   transport: "wifi" | "lora" | null;
   seen_at: number;
+}
+
+export interface Phone {
+  id: number;
+  fingerprint: string;
+  name: string;
+  paired_at: number;
 }
 
 export interface Reading {

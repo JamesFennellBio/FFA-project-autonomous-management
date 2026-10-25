@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "FFA Farm",
+    "slug": "ffa-farm",
+    "version": "0.1.0",
+    "scheme": "ffafarm",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "org.ffa.farm",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "The app talks to your farm hub over the local Wi-Fi network."
+      }
+    },
+    "android": {
+      "package": "org.ffa.farm"
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

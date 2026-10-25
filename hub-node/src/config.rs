@@ -13,6 +13,9 @@ pub struct Config {
     /// Where Wi-Fi nodes send their UDP frames.
     #[serde(default = "default_udp")]
     pub udp_listen: String,
+    /// Where the phone app sends its UDP frames.
+    #[serde(default = "default_app")]
+    pub app_listen: String,
     /// The PC daemon (`pc-daemon --hub-listen`), e.g. "192.168.1.50:7400".
     pub pc_addr: String,
     /// CRYPTO-REVIEW: the PC daemon's public key (64 hex chars), shown in the
@@ -76,6 +79,9 @@ fn default_data_dir() -> PathBuf {
 }
 fn default_udp() -> String {
     "0.0.0.0:7300".into()
+}
+fn default_app() -> String {
+    format!("0.0.0.0:{}", uplink::app::APP_PORT)
 }
 fn default_flush() -> u64 {
     86_400
