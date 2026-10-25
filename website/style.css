@@ -1,7 +1,10 @@
 /* Apple-style product page. Colours are tokens so edit mode can swap the accent. */
 
 :root {
-  --accent: #2f9e57;
+  /* Farm pages are green, Lab pages blue; edit mode can change either. */
+  --accent-farm: #2f9e57;
+  --accent-lab: #0071e3;
+  --accent: var(--accent-farm);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
 
@@ -30,6 +33,7 @@
     color-scheme: dark;
   }
 }
+html[data-mode="lab"] { --accent: var(--accent-lab); }
 /* The dark sections are dark in both themes. */
 .dark {
   --text: #f5f5f7;
@@ -258,7 +262,7 @@ h1 { font-size: clamp(44px, 8vw, 88px); max-width: 14ch; }
   height: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer;
   border: 0; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
 }
-.tool:hover { background: #eef7f1; }
+.tool:hover { background: #eef2f7; }
 .item-tools { position: absolute; top: -10px; right: -6px; z-index: 3; display: none; gap: 3px; }
 .editing [data-list] > *:hover > .item-tools,
 .editing [data-list] > *:focus-within > .item-tools { display: flex; }

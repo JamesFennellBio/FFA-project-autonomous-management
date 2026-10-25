@@ -17,7 +17,7 @@
   - focus a button → "Link address…"
   - hover a card / row → ← move, ⧉ copy, ✕ delete
   - section top left → ↑ ↓ move section, Farm/Lab only, Hide
-  - panel → accent colour
+  - panel → colour for the mode on screen (Farm green, Lab blue by default)
   - edits autosave in this browser only
   - Export page → downloads `index.html` → replace `website/index.html`, commit
   - photos from your computer get shrunk and stored inside `index.html`; big sets → put files in `website/img/` and use `img/name.jpg` as the link

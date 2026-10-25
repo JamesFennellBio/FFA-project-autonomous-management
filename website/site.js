@@ -26,7 +26,7 @@
     return (h >>> 0).toString(36);
   }
   function rootState() {
-    return [root.dataset.mode, root.style.getPropertyValue("--accent")];
+    return [root.dataset.mode, root.style.getPropertyValue("--accent-farm"), root.style.getPropertyValue("--accent-lab")];
   }
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const h = (tag, attrs = {}, ...kids) => {
@@ -52,6 +52,7 @@
     }
     resetDemo();
     buildNav();
+    syncSwatches();
     save();
   }
   document.addEventListener("click", (e) => {
@@ -145,7 +146,8 @@
   let hud = null;
   const ACCENTS = [
     ["Leaf", "#2f9e57"], ["Emerald", "#10b981"], ["Lime", "#65a30d"],
-    ["Forest", "#166534"], ["Sage", "#6b8f71"], ["Teal", "#0f766e"],
+    ["Forest", "#166534"], ["Teal", "#0f766e"], ["Blue", "#0071e3"],
+    ["Sky", "#0ea5e9"], ["Indigo", "#4f46e5"], ["Navy", "#1e3a8a"],
   ];
 
   function toggleEdit(on = !editing) {
@@ -164,6 +166,7 @@
       addTools();
       hud = buildHud();
       document.body.append(hud);
+      syncSwatches();
     } else {
       $$(".edit-ui").forEach((n) => n.remove());
       hud?.remove();
@@ -345,18 +348,27 @@
     });
   }
 
+  // Each mode has its own accent; the panel edits the one being shown.
+  function syncSwatches() {
+    if (!hud) return;
+    const mode = root.dataset.mode;
+    const accent = getComputedStyle(root).getPropertyValue("--accent-" + mode).trim().toLowerCase();
+    hud.querySelector(".accent-label").textContent = (mode === "lab" ? "Lab" : "Farm") + " colour";
+    $$(".swatch[data-c]", hud).forEach((s) => s.setAttribute("aria-pressed", String(s.dataset.c === accent)));
+    if (/^#[0-9a-f]{6}$/.test(accent)) hud.querySelector(".swatch-custom input").value = accent;
+  }
+
   function buildHud() {
-    const accent = getComputedStyle(root).getPropertyValue("--accent").trim();
     const swatches = h("div", { class: "swatches" });
     const pick = (c) => {
-      root.style.setProperty("--accent", c);
-      $$(".swatch", swatches).forEach((s) => s.setAttribute("aria-pressed", String(s.dataset.c === c)));
+      root.style.setProperty("--accent-" + root.dataset.mode, c);
+      syncSwatches();
       save();
     };
     for (const [name, c] of ACCENTS) {
-      swatches.append(h("button", { type: "button", class: "swatch", title: name, "aria-label": name, "data-c": c, "aria-pressed": String(c === accent), style: `background:${c}`, onclick: () => pick(c) }));
+      swatches.append(h("button", { type: "button", class: "swatch", title: name, "aria-label": name, "data-c": c, style: `background:${c}`, onclick: () => pick(c) }));
     }
-    const custom = h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(accent) ? accent : "#2f9e57", "aria-label": "Custom colour" });
+    const custom = h("input", { type: "color", value: "#2f9e57", "aria-label": "Custom colour" });
     custom.addEventListener("input", () => pick(custom.value));
     swatches.append(h("label", { class: "swatch swatch-custom", title: "Custom colour" }, custom));
 
@@ -368,8 +380,8 @@
       h("div", { class: "hud-head" }, "Edit page",
         h("button", { type: "button", class: "hud-x", "aria-label": "Stop editing", onclick: () => toggleEdit(false) }, "✕")),
       h("h4", {}, "Editing"), seg,
-      h("h4", {}, "Accent colour"), swatches,
-      h("p", { class: "hud-hint" }, "Click text to change it, a photo to replace it. Hover a card to copy or delete it. Top right of each section: move, Farm/Lab only, hide."),
+      h("h4", { class: "accent-label" }, "Colour"), swatches,
+      h("p", { class: "hud-hint" }, "Click text to change it, a photo to replace it. Hover a card to copy or delete it. Top left of each section: move, Farm/Lab only, hide."),
       h("p", { class: "hud-hint" }, "Saved in this browser only. Export page → replace website/index.html with the download."),
       h("div", { class: "hud-row" },
         h("button", { type: "button", class: "hud-btn", onclick: resetDraft }, "Undo all"),
@@ -426,8 +438,9 @@
     try { d = JSON.parse(store.get(DRAFT_KEY) || "null"); } catch { d = null; }
     if (!d || d.base !== base) return false;
     page.innerHTML = d.page;
-    const [, accent] = d.root || [];
-    if (accent) root.style.setProperty("--accent", accent);
+    const [, farm, lab] = d.root || [];
+    if (farm) root.style.setProperty("--accent-farm", farm);
+    if (lab) root.style.setProperty("--accent-lab", lab);
     return true;
   }
 
