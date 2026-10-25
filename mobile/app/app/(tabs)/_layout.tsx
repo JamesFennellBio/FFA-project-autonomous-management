@@ -33,7 +33,10 @@ export default function TabsLayout() {
           name={t.name}
           options={{
             title: t.title,
-            tabBarIcon: ({ color, size }) => <Ionicons name={t.icon} color={color} size={size} />,
+            // Our own palette: the tab bar's `color` is a ColorValue, which Ionicons doesn't accept.
+            tabBarIcon: ({ focused, size }) => (
+              <Ionicons name={t.icon} color={focused ? c.accent : c.muted} size={size} />
+            ),
           }}
         />
       ))}
