@@ -3,12 +3,12 @@
 - Plain HTML/CSS/JS, no build step: `index.html`, `style.css`, `site.js`
 - Preview: `python3 -m http.server 8765 --directory website` → http://localhost:8765
 - Farm / Lab
-  - switch in the menu bar
+  - switch in the dock
   - link straight to one: `?mode=farm` or `?mode=lab`
   - text with two versions = `data-v="farm"` / `data-v="lab"` spans
   - whole window for one only = title bar "Farm only" / "Lab only" in edit mode
 - Editing
-  - menu bar Edit, the pencil in the dock, Ctrl/⌘ E, or `?edit`
+  - the pencil in the dock, Ctrl/⌘ E, or `?edit`
   - click text to type; Enter = done, Shift+Enter = new line
   - click a photo box → file, link or remove
   - focus a button → "Link address…"

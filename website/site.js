@@ -6,13 +6,12 @@
   const root = document.documentElement;
   const desk = document.getElementById("desk");
   const dock = document.querySelector(".dock");
-  const appName = document.querySelector(".mb-app");
   const DRAFT_KEY = "farmlab-site-draft";
   const THEME_KEY = "farmlab-site-theme";
 
   // Snapshot before anything changes the page, so a saved draft is only
   // restored on top of the same page it was made from.
-  const base = hash(desk.innerHTML + appName.innerHTML + rootState().join("|"));
+  const base = hash(desk.innerHTML + rootState().join("|"));
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -64,26 +63,15 @@
   });
 
   /* ---------- Light / dark ---------- */
-  const themeBtn = document.getElementById("theme-toggle");
   const savedTheme = store.get(THEME_KEY);
   if (savedTheme) root.dataset.theme = savedTheme;
-  themeBtn.addEventListener("click", () => {
+  function toggleTheme() {
     const dark = root.dataset.theme
       ? root.dataset.theme === "dark"
       : matchMedia("(prefers-color-scheme: dark)").matches;
     root.dataset.theme = dark ? "light" : "dark";
     store.set(THEME_KEY, root.dataset.theme);
-  });
-
-  /* ---------- Clock ---------- */
-  const clock = document.querySelector(".mb-clock");
-  const tick = () => {
-    const d = new Date();
-    clock.textContent = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) +
-      "  " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  };
-  tick();
-  setInterval(tick, 15000);
+  }
 
   /* ---------- Windows and dock ---------- */
   const DOCK_ICONS = {
@@ -114,10 +102,18 @@
       });
       dock.append(item);
     }
+    // The dock is the only bar: the Farm/Lab switch, light/dark and Edit live here too.
+    const mode = root.dataset.mode;
     dock.append(h("span", { class: "dock-sep" }),
-      h("button", { type: "button", class: "dock-item", "aria-label": "Edit page", onclick: () => toggleEdit() },
+      h("div", { class: "seg dock-seg dock-ctl", role: "radiogroup", "aria-label": "Show the site for" },
+        h("button", { type: "button", role: "radio", "data-set-mode": "farm", "aria-checked": String(mode === "farm") }, "Farm"),
+        h("button", { type: "button", role: "radio", "data-set-mode": "lab", "aria-checked": String(mode === "lab") }, "Lab")),
+      h("button", { type: "button", class: "dock-item dock-ctl", "aria-label": "Light or dark", onclick: toggleTheme },
+        h("span", { class: "app i-sage" }, svg('<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>')),
+        h("span", { class: "dock-tip" }, "Light / dark")),
+      h("button", { type: "button", class: "dock-item dock-ctl", "aria-label": "Edit page", "aria-pressed": String(editing), title: "Edit page (Ctrl/⌘ E)", onclick: () => toggleEdit() },
         h("span", { class: "app i-dark" }, svg('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>')),
-        h("span", { class: "dock-tip" }, "Edit page")));
+        h("span", { class: "dock-tip" }, editing ? "Stop editing" : "Edit page")));
   }
 
   desk.addEventListener("click", (e) => {
@@ -192,7 +188,6 @@
   /* ---------- Edit mode ---------- */
   let editing = false;
   let hud = null;
-  const editBtn = document.getElementById("edit-toggle");
   const ACCENTS = [
     ["Leaf", "#2f9e57"], ["Emerald", "#10b981"], ["Lime", "#65a30d"],
     ["Forest", "#166534"], ["Sage", "#6b8f71"], ["Teal", "#0f766e"],
@@ -201,8 +196,7 @@
   function toggleEdit(on = !editing) {
     editing = on;
     document.body.classList.toggle("editing", on);
-    editBtn.setAttribute("aria-pressed", String(on));
-    for (const el of [...$$("[data-e]", desk), appName]) {
+    for (const el of $$("[data-e]", desk)) {
       if (on) {
         el.contentEditable = "true";
         el.spellcheck = true;
@@ -223,7 +217,6 @@
     }
     buildDock();
   }
-  editBtn.addEventListener("click", () => toggleEdit());
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e") {
       e.preventDefault();
@@ -289,7 +282,6 @@
 
   // Plain-text paste, and Enter finishes a line (Shift+Enter for a new line).
   desk.addEventListener("paste", onPaste);
-  appName.addEventListener("paste", onPaste);
   function onPaste(e) {
     if (!editing || !e.target.closest("[data-e]")) return;
     e.preventDefault();
@@ -302,13 +294,12 @@
     else e.target.blur();
   });
   desk.addEventListener("input", () => save());
-  appName.addEventListener("input", () => save());
 
   // In edit mode links don't navigate; a chip under the focused link edits its address.
   let chip = null;
   document.addEventListener("click", (e) => {
     if (!editing) return;
-    const a = e.target.closest("#desk a, .menubar .mb-app");
+    const a = e.target.closest("#desk a");
     if (a && a.matches("#desk a")) e.preventDefault();
     const img = e.target.closest("#desk [data-img]");
     if (img && !e.target.closest(".edit-ui")) imageSheet(img);
@@ -447,7 +438,7 @@
       handle.setPointerCapture(e.pointerId);
       const move = (ev) => {
         panel.style.left = Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)) + "px";
-        panel.style.top = Math.max(34, Math.min(innerHeight - 60, ev.clientY - dy)) + "px";
+        panel.style.top = Math.max(0, Math.min(innerHeight - 60, ev.clientY - dy)) + "px";
         panel.style.right = "auto";
       };
       handle.addEventListener("pointermove", move);
@@ -475,7 +466,6 @@
       store.set(DRAFT_KEY, JSON.stringify({
         base,
         desk: cleanCopy(desk).innerHTML,
-        app: cleanCopy(appName).innerHTML,
         root: rootState(),
       }));
     }, 300);
@@ -486,7 +476,6 @@
     try { d = JSON.parse(store.get(DRAFT_KEY) || "null"); } catch { d = null; }
     if (!d || d.base !== base) return false;
     desk.innerHTML = d.desk;
-    appName.innerHTML = d.app;
     const [, wall, accent] = d.root || [];
     if (wall) root.dataset.wall = wall;
     if (accent) root.style.setProperty("--accent", accent);
@@ -504,12 +493,8 @@
   function exportPage() {
     const doc = root.cloneNode(true);
     doc.querySelector("#desk").replaceWith(cleanCopy(desk));
-    doc.querySelector(".mb-app").replaceWith(cleanCopy(appName));
     doc.querySelectorAll(".edit-ui, .toast").forEach((n) => n.remove());
     doc.querySelector(".dock").replaceChildren();
-    doc.querySelector(".mb-clock").textContent = "";
-    doc.querySelectorAll("[aria-checked]").forEach((n) => n.removeAttribute("aria-checked"));
-    doc.querySelector("#edit-toggle").removeAttribute("aria-pressed");
     doc.removeAttribute("data-theme");
     doc.querySelector("body").removeAttribute("class");
     const html = "<!doctype html>\n" + doc.outerHTML + "\n";
