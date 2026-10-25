@@ -18,6 +18,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub const MAX_TCP_FRAME: usize = 32 * 1024;
 /// Max messages the hub packs into one encrypted uplink frame.
 pub const MAX_BATCH: usize = 100;
+/// Hard cap either side enforces on a received batch (stored messages +
+/// heartbeat + live messages). A bigger batch closes the connection.
+pub const MAX_BATCH_MSGS: usize = MAX_BATCH + 16;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

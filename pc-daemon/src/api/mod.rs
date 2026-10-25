@@ -434,68 +434,85 @@ async fn create_rule(State(s): St, Json(b): Json<RuleBody>) -> ApiResult {
     Ok(Json(json!({ "ok": true, "id": conn.last_insert_rowid() })))
 }
 
-async fn update_rule(State(s): St, Path(id): Path<i64>, Json(b): Json<RuleBody>) -> ApiResult {
-    b.check()?;
-    let n = s.db.lock().unwrap().execute(
-        "UPDATE rules SET name=?2, enabled=?3, node_id=?4, channel=?5, op=?6, threshold=?7,
-            target_node=?8, target_channel=?9, on_value=?10, off_value=?11, active=0 WHERE id=?1",
-        params![
-            id,
-            b.name,
-            b.enabled,
-            b.node_id,
-            b.channel,
-            b.op,
-            b.threshold,
-            b.target_node,
-            b.target_channel,
-            b.on_value,
-            b.off_value
-        ],
-    )?;
-    if n == 0 {
-        return Err(err(StatusCode::NOT_FOUND, "no such rule"));
+/// If rule `id` is currently "on" and has an off value, records the off
+/// command and returns it for sending. Call before the rule is changed or
+/// removed, so its output isn't left latched (findings 24 and FYEO scan 2).
+fn take_off_command(
+    conn: &rusqlite::Connection,
+    id: i64,
+    why: &str,
+) -> Result<Option<(u16, u8, i32)>, ApiError> {
+    let row: Option<(u16, u8, Option<i32>, bool)> = conn
+        .query_row(
+            "SELECT target_node, target_channel, off_value, active FROM rules WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)),
+        )
+        .optional()?;
+    match row {
+        Some((node, ch, Some(v), true)) => {
+            db::insert_command(conn, node, ch, v, &format!("rule:{id}:{why}"), unix_now())?;
+            Ok(Some((node, ch, v)))
+        }
+        _ => Ok(None),
     }
-    Ok(Json(json!({ "ok": true })))
 }
 
-/// Deleting a rule that is currently "on" first sends its off command, so the
-/// output isn't left latched (finding 24).
-async fn delete_rule(State(s): St, Path(id): Path<i64>) -> ApiResult {
-    let off = {
-        let conn = s.db.lock().unwrap();
-        let off: Option<(u16, u8, Option<i32>, bool)> = conn
-            .query_row(
-                "SELECT target_node, target_channel, off_value, active FROM rules WHERE id = ?1",
-                [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)),
-            )
-            .optional()?;
-        conn.execute("DELETE FROM rules WHERE id = ?1", [id])?;
-        match off {
-            Some((node, ch, Some(v), true)) => {
-                db::insert_command(
-                    &conn,
-                    node,
-                    ch,
-                    v,
-                    &format!("rule:{id}:deleted"),
-                    unix_now(),
-                )?;
-                Some((node, ch, v))
-            }
-            _ => None,
-        }
-    };
-    let mut sent_off = false;
-    if let Some((node_id, channel, value)) = off {
-        sent_off = s.send_to_hub(PcMsg::Command {
+fn send_off(s: &AppState, off: Option<(u16, u8, i32)>) -> bool {
+    match off {
+        Some((node_id, channel, value)) => s.send_to_hub(PcMsg::Command {
             node_id,
             channel,
             value,
-        });
+        }),
+        None => false,
     }
-    Ok(Json(json!({ "ok": true, "sent_off_command": sent_off })))
+}
+
+/// Editing a rule resets it to "not fired". If it was on, its off command goes
+/// out first; the edited rule fires again on the next reading if it still matches.
+async fn update_rule(State(s): St, Path(id): Path<i64>, Json(b): Json<RuleBody>) -> ApiResult {
+    b.check()?;
+    let off = {
+        let conn = s.db.lock().unwrap();
+        let off = take_off_command(&conn, id, "edited")?;
+        let n = conn.execute(
+            "UPDATE rules SET name=?2, enabled=?3, node_id=?4, channel=?5, op=?6, threshold=?7,
+                target_node=?8, target_channel=?9, on_value=?10, off_value=?11, active=0 WHERE id=?1",
+            params![
+                id,
+                b.name,
+                b.enabled,
+                b.node_id,
+                b.channel,
+                b.op,
+                b.threshold,
+                b.target_node,
+                b.target_channel,
+                b.on_value,
+                b.off_value
+            ],
+        )?;
+        if n == 0 {
+            return Err(err(StatusCode::NOT_FOUND, "no such rule"));
+        }
+        off
+    };
+    Ok(Json(
+        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
+    ))
+}
+
+async fn delete_rule(State(s): St, Path(id): Path<i64>) -> ApiResult {
+    let off = {
+        let conn = s.db.lock().unwrap();
+        let off = take_off_command(&conn, id, "deleted")?;
+        conn.execute("DELETE FROM rules WHERE id = ?1", [id])?;
+        off
+    };
+    Ok(Json(
+        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
+    ))
 }
 
 #[cfg(test)]
@@ -553,5 +570,63 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn editing_or_deleting_an_active_rule_sends_off() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO rules (id, name, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value, active)
+             VALUES (1, 'hot', 1, 0, 'gt', 30000, 1, 3, 1, 0, 1),
+                    (2, 'hot2', 1, 0, 'gt', 30000, 1, 2, 1, 0, 1);",
+        )
+        .unwrap();
+        let state = Arc::new(AppState::new(conn, &[9u8; 32], "t".repeat(64)));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        state.hub.lock().unwrap().tx = Some(tx);
+        let app = router(state);
+        let auth = format!("Bearer {}", "t".repeat(64));
+
+        let edit = json!({"name":"hot","node_id":1,"channel":0,"op":"gt","threshold":35000,"target_node":1,"target_channel":3,"on_value":1,"off_value":0});
+        let r = app
+            .clone()
+            .oneshot(
+                Request::put("/api/rules/1")
+                    .header("authorization", &auth)
+                    .header("content-type", "application/json")
+                    .body(Body::from(edit.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            PcMsg::Command {
+                node_id: 1,
+                channel: 3,
+                value: 0
+            }
+        );
+
+        let r = app
+            .oneshot(
+                Request::delete("/api/rules/2")
+                    .header("authorization", &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            PcMsg::Command {
+                node_id: 1,
+                channel: 2,
+                value: 0
+            }
+        );
     }
 }

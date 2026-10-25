@@ -187,13 +187,17 @@ impl NodeCore {
             }
             FrameType::HelloAck => {
                 let pairing = self.pairing.ok_or(Error::NotPaired)?;
-                let (init, _) = self.pending.take().ok_or(Error::NoHandshake)?;
+                let (init, _) = self.pending.as_ref().ok_or(Error::NoHandshake)?;
                 if crate::frame::peek_node_id(frame) != Some(init.node_id()) {
-                    // Not for us (shared radio channel). Keep waiting.
-                    self.pending = Some((init, now));
+                    // Not for us (shared radio channel). Keep waiting; the
+                    // timeout keeps counting from the original HELLO.
                     return Ok(NodeEvent::Ignored);
                 }
+                // CRYPTO-REVIEW: a reply that fails verification (forged, or for
+                // an older HELLO) leaves our handshake pending, so injected
+                // garbage can't cancel it (FYEO scan 2, HELLO-ACK starvation).
                 let s = init.finish(frame, &pairing.peer_pub, now)?;
+                self.pending = None; // ephemeral secret dropped and wiped
                 let epoch = s.epoch;
                 // CRYPTO-REVIEW: the old session (and its keys) is dropped here.
                 self.session = Some(s);

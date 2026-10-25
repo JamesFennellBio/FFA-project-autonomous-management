@@ -132,7 +132,7 @@ async fn session(
                     msgs.push((0, HubMsg::Heartbeat { ts: unix_now(), backlog }));
                 }
                 // Live-only messages (pairing requests): id 0, never stored.
-                while msgs.len() < MAX_BATCH + 10 {
+                while msgs.len() < uplink::MAX_BATCH_MSGS {
                     match live.try_recv() {
                         Ok(m) => msgs.push((0, m)),
                         Err(_) => break,
@@ -178,6 +178,9 @@ async fn session(
                         let batch: PcBatch = uplink::open_json(&frame, |f, out| {
                             session.open(f, out, now).map(|(_, pt)| pt.len())
                         })?;
+                        if batch.msgs.len() > uplink::MAX_BATCH_MSGS {
+                            bail!("PC batch of {} messages is over the cap", batch.msgs.len());
+                        }
                         for m in batch.msgs {
                             match m {
                                 PcMsg::Ack { upto } => store.lock().unwrap().mark_forwarded(upto)?,

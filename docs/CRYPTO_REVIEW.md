@@ -116,15 +116,19 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 4. **Metadata is in the clear:** frame type, node id, epoch and counter (all
    authenticated).
 5. **Radio denial of service can't be prevented** (jamming). What is limited
-   now: at most 50 Ed25519 checks per second on the hub; per node, at most 5
-   HELLOs per 10 s; at most 1 forwarded pairing request per second; pairing
+   now: at most 50 Ed25519 checks per second on the hub (20 on the PC's hub
+   port); per node, at most 5 *verified* HELLOs per 10 s (forged ones can't
+   use up a node's allowance); at most 1 forwarded pairing request per second; pairing
    requests are never stored in the hub DB; and the rate-limit tables are
    capped. A replayed HELLO is rejected by nonce, and a replay can't push out
    the genuine pending session (4 slots). An attacker with many recorded
    HELLOs replaying fast can still delay new sessions, which is no worse than
    jamming.
 6. **The hub→PC link is this custom protocol, not TLS.** The PC port allows
-   4 connections, each with a 10 s first-frame timeout and a 90 s idle timeout.
+   4 connections. One that hasn't proven it's the paired or approved hub gets
+   at most 10 s per frame and 30 s in total, and is the first evicted when a
+   new connection needs the slot. The verified hub is never evicted. Batches
+   over 116 messages close the connection.
 7. **Timestamps come from the hub's clock** (no RTC on the Pi 3B). A clock
    that steps backwards after a power cut can make the PC skip a few readings
    as duplicates (scan finding 19).
@@ -154,6 +158,18 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | 29 replayed HELLO blocked new sessions | nonce cache + 4 pending slots |
 | 30 silent command drop | `CommandDropped` → alert + status `dropped` |
 
+### Fixed after the second scan (scan f1122480, 0 critical / 0 high)
+
+| Finding | Fix |
+|---|---|
+| Forged HELLO-ACK cancels or delays the node's handshake (medium) | `Initiator::finish` takes `&self`; a reply that fails verification leaves the handshake pending, and the timeout isn't reset |
+| Forged HELLOs use up a node's handshake allowance (medium) | only HELLOs that verify count toward the per-node window |
+| Junk TCP connections hold every hub-port slot (medium) | only the pinned/approved hub counts as proven; unproven connections live at most 30 s and are evicted oldest-first |
+| Editing an active rule leaves its output latched (medium) | its off command is sent before the edit, same as delete |
+| Unpair leaves a waiting approval (low) | unpair also clears approvals for that id |
+| No cap on batch size (low) | `MAX_BATCH_MSGS` enforced on both ends; the PC splits big queues |
+| Unbounded signature checks on the PC hub port (low) | 20 per second |
+
 ## Tests that pin down these properties
 
 `cargo test -p crypto-sharecrate` runs these:
@@ -163,7 +179,9 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 `replayed_hello_rejected_and_live_session_survives`, `old_replay_cannot_evict_genuine_pending_session`,
 `pinned_hub_key_rejects_other_hubs`, `saved_pairing_with_wrong_key_is_dropped_when_pinned`,
 `pair_accept_for_other_device_rejected`, `forged_pair_request_rejected`.
+Also `forged_hello_ack_does_not_cancel_handshake`.
 `cargo test -p hub-node` covers the hub-side limits (`hello_flood_is_rate_limited`,
+`forged_hellos_do_not_use_up_a_nodes_allowance`, `unpair_clears_waiting_approval`,
 `pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`).
 
 ## Every CRYPTO-REVIEW location
@@ -178,7 +196,7 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `crypto-sharecrate/src/crypto/handshake.rs` | 55 | StaticSecret zeroizes on drop ("zeroize" feature). It is |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 108 | X25519, then reject a non-contributory (all-zero) result |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 134 | verify the initiator's signature *before* any ECDH work. |
-| `crypto-sharecrate/src/crypto/handshake.rs` | 194 | the signature covers OUR hello, so this ACK answers |
+| `crypto-sharecrate/src/crypto/handshake.rs` | 196 | the signature covers OUR hello, so this ACK answers |
 | `crypto-sharecrate/src/crypto/identity.rs` | 1 | long-term Ed25519 identities for nodes, the hub and the PC daemon. |
 | `crypto-sharecrate/src/crypto/identity.rs` | 14 | the 32-byte seed is the whole secret. Nodes keep it in flash, |
 | `crypto-sharecrate/src/crypto/identity.rs` | 22 | `seed` must come from a CSPRNG (or the BIP39 phrase on the hub). |
@@ -213,7 +231,8 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `crypto-sharecrate/src/node.rs` | 69 | pin the responder's public key ahead of time (built into |
 | `crypto-sharecrate/src/node.rs` | 127 | true when there's no session, or the current one hit |
 | `crypto-sharecrate/src/node.rs` | 179 | with a pinned key, an accept from anyone else |
-| `crypto-sharecrate/src/node.rs` | 198 | the old session (and its keys) is dropped here. |
+| `crypto-sharecrate/src/node.rs` | 196 | a reply that fails verification (forged, or for |
+| `crypto-sharecrate/src/node.rs` | 202 | the old session (and its keys) is dropped here. |
 | `crypto-sharecrate/tests/protocol.rs` | 2 | these tests are the spec for the security properties. |
 | `data-node/src/config.rs` | 38 | the hub's 64-hex-char public key (`hub-node fingerprint`). |
 | `data-node/src/main.rs` | 259 | new ECDH session every 10 messages / 1 hour ---- |
@@ -231,9 +250,9 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `hub-node/src/hub.rs` | 51 | pinned Ed25519 key from pairing. |
 | `hub-node/src/hub.rs` | 71 | keys a person approved in the app, waiting for the node's next PAIR_REQUEST. |
 | `hub-node/src/hub.rs` | 91 | randomness for one handshake: 48 bytes (ephemeral key + |
-| `hub-node/src/hub.rs` | 230 | verifies the node's signature with its pinned key; |
-| `hub-node/src/hub.rs` | 271 | hub side of node pairing; see crypto::pairing for the trust model. |
-| `hub-node/src/hub.rs` | 332 | never silently re-point a node id at a new |
+| `hub-node/src/hub.rs` | 233 | verifies the node's signature with its pinned key; |
+| `hub-node/src/hub.rs` | 275 | hub side of node pairing; see crypto::pairing for the trust model. |
+| `hub-node/src/hub.rs` | 336 | never silently re-point a node id at a new |
 | `hub-node/src/main.rs` | 75 | the phrase is printed once and never saved. The |
 | `hub-node/src/pc_link.rs` | 29 | pinned PC daemon Ed25519 key. |
 | `hub-node/src/pc_link.rs` | 53 | `pc_key` is the PC daemon's public key from hub.toml. The |
@@ -247,17 +266,17 @@ lost LoRa packets. Replay state only changes **after** the tag verifies.
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
 | `pc-daemon/src/db.rs` | 47 | the pinned hub key, if a hub is paired. |
-| `pc-daemon/src/hub_link.rs` | 72 | 48 random bytes for one handshake (ephemeral key + nonce) |
-| `pc-daemon/src/hub_link.rs` | 117 | verifies the hub's signature with the pinned key. |
-| `pc-daemon/src/hub_link.rs` | 183 | hub pairing. A hub is only pinned after a person approved |
+| `pc-daemon/src/hub_link.rs` | 144 | 48 random bytes for one handshake (ephemeral key + nonce) |
+| `pc-daemon/src/hub_link.rs` | 208 | verifies the hub's signature with the pinned key. |
+| `pc-daemon/src/hub_link.rs` | 280 | hub pairing. A hub is only pinned after a person approved |
 | `pc-daemon/src/main.rs` | 62 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
 | `pc-daemon/src/state.rs` | 44 | the PC daemon's long-term signing key. |
 | `pc-daemon/src/state.rs` | 49 | hub key a person approved in the app; it's pinned once |
-| `uplink/src/lib.rs` | 162 | seal a JSON value as an Uplink frame under the session. |
-| `uplink/src/lib.rs` | 173 | open an Uplink frame. `open` is either `Session::open` or |
-| `uplink/src/lib.rs` | 220 | used for the PC daemon's identity seed. The OS RNG fills |
-| `uplink/src/lib.rs` | 253 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
+| `uplink/src/lib.rs` | 165 | seal a JSON value as an Uplink frame under the session. |
+| `uplink/src/lib.rs` | 176 | open an Uplink frame. `open` is either `Session::open` or |
+| `uplink/src/lib.rs` | 223 | used for the PC daemon's identity seed. The OS RNG fills |
+| `uplink/src/lib.rs` | 256 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
-_85 tagged locations._
+_86 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

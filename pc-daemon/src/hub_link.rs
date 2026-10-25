@@ -2,58 +2,129 @@
 //! then starts an ECDH handshake every 10 frames / 1 hour, like a node does
 //! with the hub.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
 use crypto_sharecrate::crypto::{handshake, pairing, responder::PeerSessions};
 use crypto_sharecrate::frame::FrameType;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::mpsc;
+use tokio::task::AbortHandle;
+use tokio::time::Instant;
 use tracing::{info, warn};
-use uplink::{HubBatch, HubMsg, PcBatch, PcMsg, mono_now, read_frame, unix_now, write_frame};
+use uplink::{
+    HubBatch, HubMsg, MAX_BATCH_MSGS, PcBatch, PcMsg, mono_now, read_frame, unix_now, write_frame,
+};
 
 use crate::db;
 use crate::state::{AppState, PairKind, PendingPair};
 
 /// Max simultaneous TCP connections on the hub port (there's one real hub).
 const MAX_CONNECTIONS: usize = 4;
-/// A new connection must send its first frame this quickly...
+/// A connection that hasn't proven it's the paired (or approved) hub must send
+/// each frame within this time...
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
-/// ...and an established one must send something this often (the hub sends a
-/// heartbeat every 30 s).
+/// ...and is closed after this long no matter what it sends. An unpaired real
+/// hub just reconnects (every 5 s) and keeps asking.
+const UNPROVEN_LIFETIME: Duration = Duration::from_secs(30);
+/// A proven hub must send something this often (it sends a heartbeat every 30 s).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
-pub async fn serve(state: Arc<AppState>, addr: SocketAddr) {
-    let listener = match TcpListener::bind(addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("can't listen for hub on {addr}: {e}");
-            return;
+struct Slot {
+    proven: bool,
+    opened: Instant,
+    abort: Option<AbortHandle>,
+}
+
+/// Open connections on the hub port. When it's full, the oldest connection
+/// that hasn't proven itself is closed to make room, so junk connections can't
+/// lock the real hub out (FYEO scan 2). Proven connections are never evicted.
+#[derive(Clone, Default)]
+struct Slots(Arc<Mutex<HashMap<u64, Slot>>>);
+
+impl Slots {
+    /// Reserves a slot for a new connection, evicting if needed.
+    fn admit(&self, conn_id: u64) -> bool {
+        let mut map = self.0.lock().unwrap();
+        if map.len() >= MAX_CONNECTIONS {
+            let victim = map
+                .iter()
+                .filter(|(_, s)| !s.proven)
+                .min_by_key(|(_, s)| s.opened)
+                .map(|(id, _)| *id);
+            match victim {
+                Some(id) => {
+                    if let Some(slot) = map.remove(&id)
+                        && let Some(h) = slot.abort
+                    {
+                        h.abort();
+                    }
+                }
+                None => return false,
+            }
         }
-    };
-    info!("waiting for hub on {addr}");
-    // Finding 04: cap connections so idle sockets can't use up the daemon.
-    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+        map.insert(
+            conn_id,
+            Slot {
+                proven: false,
+                opened: Instant::now(),
+                abort: None,
+            },
+        );
+        true
+    }
+
+    fn set_abort(&self, conn_id: u64, h: AbortHandle) {
+        if let Some(s) = self.0.lock().unwrap().get_mut(&conn_id) {
+            s.abort = Some(h);
+        }
+    }
+
+    fn mark_proven(&self, conn_id: u64) {
+        if let Some(s) = self.0.lock().unwrap().get_mut(&conn_id) {
+            s.proven = true;
+        }
+    }
+
+    fn release(&self, conn_id: u64) {
+        self.0.lock().unwrap().remove(&conn_id);
+    }
+}
+
+pub async fn serve(state: Arc<AppState>, addr: SocketAddr) {
+    match TcpListener::bind(addr).await {
+        Ok(l) => {
+            info!("waiting for hub on {addr}");
+            serve_on(state, l).await
+        }
+        Err(e) => tracing::error!("can't listen for hub on {addr}: {e}"),
+    }
+}
+
+async fn serve_on(state: Arc<AppState>, listener: TcpListener) {
+    let slots = Slots::default();
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
-                let Ok(permit) = slots.clone().try_acquire_owned() else {
-                    warn!("too many connections on the hub port; dropping {peer}");
-                    continue;
-                };
-                let st = state.clone();
                 let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
-                tokio::spawn(async move {
-                    let _permit = permit;
+                if !slots.admit(conn_id) {
+                    warn!("hub port full of verified connections; dropping {peer}");
+                    continue;
+                }
+                let st = state.clone();
+                let sl = slots.clone();
+                let task = tokio::spawn(async move {
                     info!("hub connection from {peer}");
-                    if let Err(e) = handle(st.clone(), stream, conn_id).await {
+                    if let Err(e) = handle(st.clone(), stream, conn_id, &sl).await {
                         warn!("hub connection {peer} closed: {e:#}");
                     }
+                    sl.release(conn_id);
                     // Finding 14: only the connection that registered as the
                     // hub may mark the hub offline.
                     let mut hub = st.hub.lock().unwrap();
@@ -63,6 +134,7 @@ pub async fn serve(state: Arc<AppState>, addr: SocketAddr) {
                         hub.conn_id = None;
                     }
                 });
+                slots.set_abort(conn_id, task.abort_handle());
             }
             Err(e) => warn!("accept: {e}"),
         }
@@ -79,29 +151,45 @@ fn hs_random() -> Result<([u8; 48], u32)> {
     Ok((hs, u32::from_le_bytes([r[48], r[49], r[50], r[51]])))
 }
 
-async fn handle(state: Arc<AppState>, stream: TcpStream, conn_id: u64) -> Result<()> {
+async fn handle(
+    state: Arc<AppState>,
+    stream: TcpStream,
+    conn_id: u64,
+    slots: &Slots,
+) -> Result<()> {
     stream.set_nodelay(true)?;
     let (mut rd, mut wr) = stream.into_split();
     let (tx, mut rx) = mpsc::unbounded_channel::<PcMsg>();
     let mut peer = PeerSessions::new();
     let mut queue: Vec<PcMsg> = Vec::new();
     let mut registered = false;
-    // Set once the peer sends anything valid (a signed pairing request or a
-    // HELLO from the pinned hub). Until then the short timeout applies.
+    // Set once the peer proves it's the paired hub (HELLO signed with the
+    // pinned key) or the hub a person approved (its pairing request gets an
+    // accept). A signed pairing request from any other key does NOT count:
+    // anyone can make keys.
     let mut proven = false;
+    let unproven_deadline = Instant::now() + UNPROVEN_LIFETIME;
 
     loop {
         tokio::select! {
-            frame = tokio::time::timeout(
-                if proven { IDLE_TIMEOUT } else { FIRST_FRAME_TIMEOUT },
+            frame = tokio::time::timeout_at(
+                if proven {
+                    Instant::now() + IDLE_TIMEOUT
+                } else {
+                    unproven_deadline.min(Instant::now() + FIRST_FRAME_TIMEOUT)
+                },
                 read_frame(&mut rd),
             ) => {
                 let frame = frame.map_err(|_| anyhow::anyhow!("timed out waiting for a frame"))??;
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
                     FrameType::PairRequest => {
-                        let reply = on_pair_request(&state, &frame)?;
-                        proven = true;
-                        if let Some(reply) = reply {
+                        if !state.take_sig_budget(mono_now()) {
+                            bail!("signature budget used up");
+                        }
+                        // Some(reply) only for the pinned or approved hub.
+                        if let Some(reply) = on_pair_request(&state, &frame)? {
+                            proven = true;
+                            slots.mark_proven(conn_id);
                             write_frame(&mut wr, &reply).await?;
                         }
                     }
@@ -113,12 +201,16 @@ async fn handle(state: Arc<AppState>, stream: TcpStream, conn_id: u64) -> Result
                         if handshake::hello_node_id(&frame).ok() != Some(hub_id as u16) {
                             bail!("HELLO with wrong hub id");
                         }
+                        if !state.take_sig_budget(mono_now()) {
+                            bail!("signature budget used up");
+                        }
                         let (rand, epoch) = hs_random()?;
                         // CRYPTO-REVIEW: verifies the hub's signature with the pinned key.
                         let ack = peer
                             .on_hello(&frame, &hub_pub, &state.identity, &rand, epoch, mono_now())
                             .map_err(|e| anyhow::anyhow!("hello: {e}"))?;
                         proven = true;
+                        slots.mark_proven(conn_id);
                         write_frame(&mut wr, &ack).await?;
                         state.hub.lock().unwrap().sessions += 1;
                     }
@@ -127,6 +219,9 @@ async fn handle(state: Arc<AppState>, stream: TcpStream, conn_id: u64) -> Result
                         let batch: HubBatch = uplink::open_json(&frame, |f, out| {
                             peer.open(f, out, now).map(|(_, pt)| pt.len())
                         })?;
+                        if batch.msgs.len() > MAX_BATCH_MSGS {
+                            bail!("hub batch of {} messages is over the cap", batch.msgs.len());
+                        }
                         if !registered {
                             // First frame that verified under a session: this is the real hub.
                             let mut hub = state.hub.lock().unwrap();
@@ -173,8 +268,10 @@ async fn flush(
     if !s.can_send(now) {
         return Ok(());
     }
+    // Never send more than the hub accepts in one batch; the rest goes next time.
+    let n = queue.len().min(MAX_BATCH_MSGS);
     let batch = PcBatch {
-        msgs: std::mem::take(queue),
+        msgs: queue.drain(..n).collect(),
     };
     let frame = uplink::seal_json(s, &batch, now)?;
     write_frame(wr, &frame).await
@@ -251,4 +348,104 @@ fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<P
     tx.commit()?;
     state.hub.lock().unwrap().last_seen = Some(unix_now());
     Ok((upto, cmds))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto_sharecrate::crypto::identity::Identity;
+    use crypto_sharecrate::node::{NodeCore, Pairing};
+    use tokio::io::AsyncReadExt;
+
+    async fn start(state: Arc<AppState>) -> SocketAddr {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(serve_on(state, l));
+        addr
+    }
+
+    fn state() -> Arc<AppState> {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        Arc::new(AppState::new(conn, &[5u8; 32], "t".repeat(64)))
+    }
+
+    /// A connection that sends a validly signed pairing request from a
+    /// throwaway key (what an attacker can do), then sits idle.
+    async fn junk(addr: SocketAddr, seed: u8) -> TcpStream {
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        let req = NodeCore::new(&[seed; 32], None).pair_request();
+        write_frame(&mut s, &req).await.unwrap();
+        s
+    }
+
+    async fn is_closed(s: &mut TcpStream) -> bool {
+        let mut b = [0u8; 1];
+        matches!(
+            tokio::time::timeout(Duration::from_millis(300), s.read(&mut b)).await,
+            Ok(Ok(0)) | Ok(Err(_))
+        )
+    }
+
+    #[tokio::test]
+    async fn junk_connections_are_evicted_for_new_ones() {
+        let addr = start(state()).await;
+        let mut first = junk(addr, 10).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut others = Vec::new();
+        for i in 0..MAX_CONNECTIONS as u8 {
+            others.push(junk(addr, 11 + i).await);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            is_closed(&mut first).await,
+            "oldest unproven connection evicted"
+        );
+        assert!(!is_closed(&mut others[MAX_CONNECTIONS - 1]).await);
+    }
+
+    #[tokio::test]
+    async fn proven_hub_is_never_evicted() {
+        let st = state();
+        let pc_pub = st.identity.public_key();
+        let hub_seed = [7u8; 32];
+        let hub_pub = Identity::from_seed(&hub_seed).public_key();
+        db::pair_hub(&st.db.lock().unwrap(), &hub_pub, 0).unwrap();
+        let addr = start(st).await;
+
+        // real hub: HELLO signed with its pinned key
+        let mut hub = TcpStream::connect(addr).await.unwrap();
+        let mut core = NodeCore::new(
+            &hub_seed,
+            Some(Pairing {
+                node_id: 1,
+                peer_pub: pc_pub,
+            }),
+        );
+        let mut r = [0u8; 48];
+        uplink::getrandom(&mut r).unwrap();
+        write_frame(&mut hub, &core.start_handshake(&r, 0).unwrap())
+            .await
+            .unwrap();
+        let ack = read_frame(&mut hub).await.unwrap();
+        assert!(core.handle_frame(&ack, 0).is_ok());
+
+        // a flood of junk connections can't push it out
+        let mut junks = Vec::new();
+        for i in 0..(MAX_CONNECTIONS as u8 * 2) {
+            junks.push(junk(addr, 40 + i).await);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(!is_closed(&mut hub).await, "verified hub keeps its slot");
+    }
+
+    #[test]
+    fn signature_budget_is_per_second() {
+        let st = state();
+        for _ in 0..crate::state::SIG_CHECKS_PER_SEC {
+            assert!(st.take_sig_budget(100));
+        }
+        assert!(!st.take_sig_budget(100));
+        assert!(st.take_sig_budget(101));
+    }
 }

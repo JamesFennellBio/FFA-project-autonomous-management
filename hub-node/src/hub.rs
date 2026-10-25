@@ -206,6 +206,10 @@ impl Hub {
                 let node_id =
                     handshake::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
                 // Cheap checks first: unknown node, per-node rate, global budget.
+                // The per-node window only counts HELLOs that verified (below),
+                // so forged HELLOs can't use up a real node's allowance (FYEO
+                // scan 2). Forged ones still cost the global budget, which is
+                // the cap on how much CPU a radio attacker can burn.
                 let node = self
                     .nodes
                     .get_mut(&node_id)
@@ -220,7 +224,6 @@ impl Hub {
                 if node.recent_hellos.len() >= HELLOS_PER_WINDOW {
                     anyhow::bail!("too many HELLOs from node {node_id}");
                 }
-                node.recent_hellos.push_back(mono);
                 if !self.take_sig_budget(mono) {
                     anyhow::bail!("signature budget used up; HELLO dropped");
                 }
@@ -233,6 +236,7 @@ impl Hub {
                     .sessions
                     .on_hello(frame, &node.public_key, identity, &rand, epoch, mono)
                     .map_err(|e| anyhow::anyhow!("hello from node {node_id}: {e}"))?;
+                node.recent_hellos.push_back(mono);
                 out.frames.push((link, ack.to_vec()));
             }
             t if t.is_encrypted() && frame.len() == FRAME_LEN => {
@@ -362,6 +366,9 @@ impl Hub {
             },
             PcMsg::Unpair { node_id } => {
                 self.nodes.remove(&node_id);
+                // Also forget an approval still waiting for that id, or the
+                // deleted device could still pair later.
+                self.approved.retain(|_, id| *id != node_id);
                 if let Err(e) = self.save() {
                     warn!("saving pairings: {e:#}");
                 }
@@ -681,5 +688,45 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn forged_hellos_do_not_use_up_a_nodes_allowance() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let mut node = NodeCore::new(&[2u8; 32], None);
+        pair_and_connect(&mut hub, &mut node, 1, udp());
+        // attacker signs HELLOs for node 1 with their own key
+        let mut evil = NodeCore::new(
+            &[9u8; 32],
+            Some(crypto_sharecrate::node::Pairing {
+                node_id: 1,
+                peer_pub: hub.public_key(),
+            }),
+        );
+        for _ in 0..20 {
+            let forged = evil.start_handshake(&rand48(), 1).unwrap();
+            assert!(hub.on_frame(&forged, udp(), 1, 0).frames.is_empty());
+        }
+        // the real node can still handshake in the same second... (budget is
+        // per second, so move to the next one)
+        let hello = node.start_handshake(&rand48(), 2).unwrap();
+        assert_eq!(hub.on_frame(&hello, udp(), 2, 0).frames.len(), 1);
+    }
+
+    #[test]
+    fn unpair_clears_waiting_approval() {
+        let mut hub = Hub::new(&[1u8; 32], None).unwrap();
+        let node = NodeCore::new(&[2u8; 32], None);
+        hub.on_pc(
+            PcMsg::ApprovePair {
+                public_key: uplink::key_to_hex(&node.public_key()),
+                node_id: 7,
+            },
+            0,
+            0,
+        );
+        hub.on_pc(PcMsg::Unpair { node_id: 7 }, 0, 0);
+        let out = hub.on_frame(&node.pair_request(), udp(), 0, 100);
+        assert!(out.frames.is_empty(), "no PAIR_ACCEPT after unpair");
     }
 }
