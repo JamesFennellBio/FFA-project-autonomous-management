@@ -35,7 +35,12 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <span className="logo">🌱</span>
+          <span className="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 18c0-7 5-12 14-12-.5 8-5 12.5-12 12.5" />
+              <path d="M5 19l7-7" />
+            </svg>
+          </span>
           <div>
             <div className="brand-name">Autonomous Farm &amp; Lab</div>
             <div className="brand-sub">Autonomous management</div>
