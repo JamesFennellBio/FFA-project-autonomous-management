@@ -33,7 +33,7 @@
 - `crypto-sharecrate/`: protocol + crypto, no_std, shared by everything
 - `data-node/`: ESP32-C3 firmware (no_std Rust)
 - `hub-node/`: Pi hub (Rust)
-- `pc-daemon/`: PC daemon, SQLite, REST API, rules (Rust)
+- `pc-daemon/`: PC daemon, SQLite, REST API, passes recipe edits to the hub (Rust)
 - `uplink/`: hub ↔ PC message types
 - `node-sim/`: fake node for testing without hardware
 - `frontend/`: Electron + React + TypeScript

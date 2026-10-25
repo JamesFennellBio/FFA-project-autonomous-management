@@ -234,7 +234,7 @@ async fn handle(
                             queue.push(db::labels(&state.db.lock().unwrap())?);
                             info!("hub session established");
                         }
-                        let (upto, cmds, approvals) = store_batch(&state, &batch)?;
+                        let (upto, approvals) = store_batch(&state, &batch)?;
                         for (key, name, phone_id) in approvals {
                             match crate::api::approve_key(&state, &key, name, true) {
                                 Ok(_) => info!("node approved from phone {phone_id}"),
@@ -245,7 +245,6 @@ async fn handle(
                         if let Some(upto) = upto {
                             queue.insert(0, PcMsg::Ack { upto });
                         }
-                        queue.extend(cmds);
                         flush(&mut peer, &mut queue, &mut wr).await?;
                     }
                     other => bail!("unexpected frame {other:?} from hub"),
@@ -322,17 +321,13 @@ fn on_pair_request(state: &AppState, frame: &[u8]) -> Result<Option<Vec<u8>>> {
 /// A node approval a phone asked for: (public key, name, phone id).
 type PhoneApproval = (String, Option<String>, u16);
 
-/// Stores a batch and returns (highest hub row id stored, rule commands to
-/// send, approvals from phones to run once the DB lock is released).
-fn store_batch(
-    state: &AppState,
-    batch: &HubBatch,
-) -> Result<(Option<i64>, Vec<PcMsg>, Vec<PhoneApproval>)> {
+/// Stores a batch and returns (highest hub row id stored, approvals from
+/// phones to run once the DB lock is released).
+fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<PhoneApproval>)> {
     let mut conn = state.db.lock().unwrap();
     let last_seq = db::hub_last_seq(&conn)?;
     let tx = conn.transaction()?;
     let mut upto = None;
-    let mut cmds = Vec::new();
     let mut approvals = Vec::new();
     for (seq, msg) in &batch.msgs {
         upto = Some(upto.map_or(*seq, |u: i64| u.max(*seq)));
@@ -377,12 +372,12 @@ fn store_batch(
         if *seq <= last_seq {
             continue; // already stored before a reconnect
         }
-        cmds.extend(db::store_hub_msg(&tx, *seq, msg)?);
+        db::store_hub_msg(&tx, *seq, msg)?;
     }
     tx.execute("UPDATE hubs SET last_seen = ?1", [unix_now()])?;
     tx.commit()?;
     state.hub.lock().unwrap().last_seen = Some(unix_now());
-    Ok((upto, cmds, approvals))
+    Ok((upto, approvals))
 }
 
 #[cfg(test)]

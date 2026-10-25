@@ -3,14 +3,13 @@
 //! - Listens for the Pi hub on TCP (default 0.0.0.0:7400). That link is encrypted
 //!   with the same ECDH + ChaCha20-Poly1305 protocol the nodes use.
 //! - Stores everything in SQLite (full history).
-//! - Runs automation rules (e.g. "temp > 30 °C -> siren on").
+//! - Passes the desktop app's recipe edits to the hub, which runs them.
 //! - Serves the REST API for the Electron app on 127.0.0.1:7401 only.
 
 mod api;
 mod auth;
 mod db;
 mod hub_link;
-mod rules;
 mod state;
 
 use std::net::SocketAddr;

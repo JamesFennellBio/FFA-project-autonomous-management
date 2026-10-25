@@ -7,7 +7,6 @@ use crypto_sharecrate::packet::ChannelKind;
 use rusqlite::{Connection, OptionalExtension, params};
 use uplink::HubMsg;
 
-use crate::rules;
 use uplink::PcMsg;
 
 const SCHEMA: &str = include_str!("../../database/schema.sql");
@@ -79,7 +78,7 @@ pub fn hub_last_seq(conn: &Connection) -> Result<i64> {
 /// Next free node id (1..=65534).
 /// Next node id. Ids are never reused, even after a node is deleted
 /// (findings 16/22/31): the counter only goes up, and it also skips past any
-/// id that still has readings or rules.
+/// id that still has readings.
 pub fn next_node_id(conn: &Connection) -> Result<u16> {
     let counter: i64 = conn
         .query_row(
@@ -92,9 +91,7 @@ pub fn next_node_id(conn: &Connection) -> Result<u16> {
     let used: i64 = conn.query_row(
         "SELECT MAX(m) FROM (
             SELECT MAX(id) AS m FROM nodes
-            UNION ALL SELECT MAX(node_id) FROM readings
-            UNION ALL SELECT MAX(node_id) FROM rules
-            UNION ALL SELECT MAX(target_node) FROM rules)",
+            UNION ALL SELECT MAX(node_id) FROM readings)",
         [],
         |r| Ok(r.get::<_, Option<i64>>(0)?.unwrap_or(0)),
     )?;
@@ -166,9 +163,8 @@ fn set_command_status(
     )?)
 }
 
-/// Stores one message from the hub. Returns commands that rules want sent.
-pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<PcMsg>> {
-    let mut out = Vec::new();
+/// Stores one message from the hub.
+pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<()> {
     match msg {
         HubMsg::Reading {
             node_id,
@@ -188,7 +184,6 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<Pc
                 "UPDATE nodes SET last_seen = ?2 WHERE id = ?1",
                 params![node_id, ts],
             )?;
-            out.extend(rules::on_reading(conn, *node_id, *channel, *value, *ts)?);
         }
         HubMsg::Announce {
             node_id,
@@ -330,7 +325,7 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<Vec<Pc
         | HubMsg::RecipeReply { .. } => {}
     }
     conn.execute("UPDATE hubs SET last_seq = MAX(last_seq, ?1)", params![seq])?;
-    Ok(out)
+    Ok(())
 }
 
 pub fn insert_command(
@@ -356,6 +351,21 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         init(&c).unwrap();
         c
+    }
+
+    #[test]
+    fn old_pc_rules_are_dropped() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE rules (id INTEGER PRIMARY KEY, node_id INTEGER, target_node INTEGER); INSERT INTO rules VALUES (1, 40, 41);")
+            .unwrap();
+        init(&c).unwrap();
+        let left: bool = c
+            .prepare("SELECT 1 FROM sqlite_master WHERE name = 'rules'")
+            .unwrap()
+            .exists([])
+            .unwrap();
+        assert!(!left);
+        assert_eq!(next_node_id(&c).unwrap(), 1);
     }
 
     #[test]

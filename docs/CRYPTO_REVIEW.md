@@ -127,7 +127,7 @@
 - 11/15 init said nothing stored → output + docs corrected
 - 12 hub re-pairs with any PC → `pc_public_key` required
 - 14 any TCP disconnect cleared hub link → only the registered connection can
-- 16/22/25/31 node id reuse / collisions → ids never reused, rules deleted with node, hub won't re-point an id
+- 16/22/25/31 node id reuse / collisions → ids never reused, hub won't re-point an id (PC rules were removed; automation is hub recipes)
 - 24 deleted active rule left output on → off command on delete
 - 27 `restore` overwrote identity → needs `--force`
 - 29 replayed HELLO blocked sessions → nonce cache + 4 pending slots
@@ -248,15 +248,15 @@
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
 | `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
 | `node-sim/src/main.rs` | 162 | handshake randomness |
-| `pc-daemon/src/api/mod.rs` | 127 | the human approval step of pairing. A device's key is only |
-| `pc-daemon/src/api/mod.rs` | 137 | only keys that are in the pending list (they sent a signed |
+| `pc-daemon/src/api/mod.rs` | 123 | the human approval step of pairing. A device's key is only |
+| `pc-daemon/src/api/mod.rs` | 133 | only keys that are in the pending list (they sent a signed |
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
-| `pc-daemon/src/db.rs` | 47 | the pinned hub key, if a hub is paired. |
+| `pc-daemon/src/db.rs` | 46 | the pinned hub key, if a hub is paired. |
 | `pc-daemon/src/hub_link.rs` | 145 | 48 random bytes for one handshake (ephemeral key + nonce) |
 | `pc-daemon/src/hub_link.rs` | 209 | verifies the hub's signature with the pinned key. |
-| `pc-daemon/src/hub_link.rs` | 289 | hub pairing. A hub is only pinned after a person approved |
-| `pc-daemon/src/main.rs` | 62 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
+| `pc-daemon/src/hub_link.rs` | 288 | hub pairing. A hub is only pinned after a person approved |
+| `pc-daemon/src/main.rs` | 61 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
 | `pc-daemon/src/state.rs` | 49 | the PC daemon's long-term signing key. |
 | `pc-daemon/src/state.rs` | 54 | hub key a person approved in the app; it's pinned once |
 | `uplink/src/lib.rs` | 261 | seal a JSON value as an Uplink frame under the session. |

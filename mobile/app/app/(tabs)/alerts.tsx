@@ -57,7 +57,7 @@ export default function Alerts() {
         </Card>
       ))}
       {next != null && <Button title="Older" busy={busy} onPress={() => void more()} />}
-      <Body small muted>Alerts from the PC's own rules are in the desktop app.</Body>
+      <Body small muted>Alerts older than 30 days are in the desktop app.</Body>
     </Screen>
   );
 }

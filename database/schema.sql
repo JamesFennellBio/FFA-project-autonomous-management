@@ -91,19 +91,6 @@ CREATE TABLE IF NOT EXISTS messages (
     ts          INTEGER NOT NULL
 );
 
--- Automation: "if <node.channel> <op> <threshold> then set <target> to on_value
--- (and back to off_value when it clears)".
-CREATE TABLE IF NOT EXISTS rules (
-    id              INTEGER PRIMARY KEY,
-    name            TEXT NOT NULL,
-    enabled         INTEGER NOT NULL DEFAULT 1,
-    node_id         INTEGER NOT NULL,
-    channel         INTEGER NOT NULL,
-    op              TEXT NOT NULL CHECK (op IN ('gt', 'lt')),
-    threshold       INTEGER NOT NULL,
-    target_node     INTEGER NOT NULL,
-    target_channel  INTEGER NOT NULL,
-    on_value        INTEGER NOT NULL DEFAULT 1,
-    off_value       INTEGER,               -- NULL = leave it on until a person turns it off
-    active          INTEGER NOT NULL DEFAULT 0
-);
+-- The PC used to run its own automation rules. Recipes on the hub replaced
+-- them (hub-node/src/recipes.rs), so an old database loses that table.
+DROP TABLE IF EXISTS rules;

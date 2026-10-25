@@ -16,8 +16,6 @@
 //! | POST   | /api/alerts/{id}/ack                          | acknowledge |
 //! | GET    | /api/phones                                   | phones paired with the hub |
 //! | DELETE | /api/phones/{id}                              | unpair a phone |
-//! | GET    | /api/rules  · POST /api/rules                 | automation rules |
-//! | PUT    | /api/rules/{id} · DELETE /api/rules/{id}      | |
 //! | GET    | /api/recipes · POST /api/recipes              | hub recipes (Blockly); passed to the hub |
 //! | GET    | /api/recipes/{id} · PUT · DELETE              | |
 //! | POST   | /api/recipes/{id}/enabled                     | `{"enabled": true}` |
@@ -28,10 +26,10 @@ use std::time::Duration;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router, middleware};
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use uplink::{DeviceKind, PcMsg, RecipeOp, unix_now};
 
@@ -53,8 +51,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/readings", get(readings))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/{id}/ack", post(ack_alert))
-        .route("/api/rules", get(list_rules).post(create_rule))
-        .route("/api/rules/{id}", put(update_rule).delete(delete_rule))
         .route("/api/recipes", get(list_recipes).post(create_recipe))
         .route(
             "/api/recipes/{id}",
@@ -337,9 +333,9 @@ async fn rename_node(State(s): St, Path(id): Path<u16>, Json(b): Json<NameBody>)
 }
 
 /// Unpairs a node. The hub has to hear about it, or it would keep trusting
-/// the node's key, so this refuses while the hub is offline. The node's rules
-/// go too, so they can never act on another device (finding 16). Its id is
-/// never handed out again (see db::next_node_id).
+/// the node's key, so this refuses while the hub is offline. Its id is never
+/// handed out again (see db::next_node_id), so nothing that still names it
+/// can act on another device (finding 16).
 async fn delete_node(State(s): St, Path(id): Path<u16>) -> ApiResult {
     if !s.send_to_hub(PcMsg::Unpair {
         node_id: id,
@@ -351,10 +347,6 @@ async fn delete_node(State(s): St, Path(id): Path<u16>) -> ApiResult {
         ));
     }
     let conn = s.db.lock().unwrap();
-    conn.execute(
-        "DELETE FROM rules WHERE node_id = ?1 OR target_node = ?1",
-        [id],
-    )?;
     conn.execute("DELETE FROM nodes WHERE id = ?1", [id])?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -561,160 +553,6 @@ async fn ack_alert(State(s): St, Path(id): Path<i64>) -> ApiResult {
     Ok(Json(json!({ "ok": true })))
 }
 
-#[derive(Deserialize, Serialize)]
-struct RuleBody {
-    name: String,
-    #[serde(default = "yes")]
-    enabled: bool,
-    node_id: u16,
-    channel: u8,
-    op: String,
-    threshold: i32,
-    target_node: u16,
-    target_channel: u8,
-    #[serde(default = "one")]
-    on_value: i32,
-    off_value: Option<i32>,
-}
-
-fn yes() -> bool {
-    true
-}
-fn one() -> i32 {
-    1
-}
-
-impl RuleBody {
-    fn check(&self) -> Result<(), ApiError> {
-        if self.op != "gt" && self.op != "lt" {
-            return Err(err(StatusCode::BAD_REQUEST, "op must be \"gt\" or \"lt\""));
-        }
-        if self.name.trim().is_empty() {
-            return Err(err(StatusCode::BAD_REQUEST, "name required"));
-        }
-        Ok(())
-    }
-}
-
-async fn list_rules(State(s): St) -> ApiResult {
-    let conn = s.db.lock().unwrap();
-    let mut stmt = conn.prepare(
-        "SELECT id, name, enabled, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value, active
-         FROM rules ORDER BY id",
-    )?;
-    let rows: Vec<Value> = stmt
-        .query_map([], |r| {
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "name": r.get::<_, String>(1)?,
-                "enabled": r.get::<_, i64>(2)? != 0,
-                "node_id": r.get::<_, i64>(3)?,
-                "channel": r.get::<_, i64>(4)?,
-                "op": r.get::<_, String>(5)?,
-                "threshold": r.get::<_, i64>(6)?,
-                "target_node": r.get::<_, i64>(7)?,
-                "target_channel": r.get::<_, i64>(8)?,
-                "on_value": r.get::<_, i64>(9)?,
-                "off_value": r.get::<_, Option<i64>>(10)?,
-                "active": r.get::<_, i64>(11)? != 0,
-            }))
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    Ok(Json(json!(rows)))
-}
-
-async fn create_rule(State(s): St, Json(b): Json<RuleBody>) -> ApiResult {
-    b.check()?;
-    let conn = s.db.lock().unwrap();
-    conn.execute(
-        "INSERT INTO rules (name, enabled, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![b.name, b.enabled, b.node_id, b.channel, b.op, b.threshold, b.target_node, b.target_channel, b.on_value, b.off_value],
-    )?;
-    Ok(Json(json!({ "ok": true, "id": conn.last_insert_rowid() })))
-}
-
-/// If rule `id` is currently "on" and has an off value, records the off
-/// command and returns it for sending. Call before the rule is changed or
-/// removed, so its output isn't left latched (findings 24 and FYEO scan 2).
-fn take_off_command(
-    conn: &rusqlite::Connection,
-    id: i64,
-    why: &str,
-) -> Result<Option<(u16, u8, i32)>, ApiError> {
-    let row: Option<(u16, u8, Option<i32>, bool)> = conn
-        .query_row(
-            "SELECT target_node, target_channel, off_value, active FROM rules WHERE id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)),
-        )
-        .optional()?;
-    match row {
-        Some((node, ch, Some(v), true)) => {
-            db::insert_command(conn, node, ch, v, &format!("rule:{id}:{why}"), unix_now())?;
-            Ok(Some((node, ch, v)))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn send_off(s: &AppState, off: Option<(u16, u8, i32)>) -> bool {
-    match off {
-        Some((node_id, channel, value)) => s.send_to_hub(PcMsg::Command {
-            node_id,
-            channel,
-            value,
-        }),
-        None => false,
-    }
-}
-
-/// Editing a rule resets it to "not fired". If it was on, its off command goes
-/// out first; the edited rule fires again on the next reading if it still matches.
-async fn update_rule(State(s): St, Path(id): Path<i64>, Json(b): Json<RuleBody>) -> ApiResult {
-    b.check()?;
-    let off = {
-        let conn = s.db.lock().unwrap();
-        let off = take_off_command(&conn, id, "edited")?;
-        let n = conn.execute(
-            "UPDATE rules SET name=?2, enabled=?3, node_id=?4, channel=?5, op=?6, threshold=?7,
-                target_node=?8, target_channel=?9, on_value=?10, off_value=?11, active=0 WHERE id=?1",
-            params![
-                id,
-                b.name,
-                b.enabled,
-                b.node_id,
-                b.channel,
-                b.op,
-                b.threshold,
-                b.target_node,
-                b.target_channel,
-                b.on_value,
-                b.off_value
-            ],
-        )?;
-        if n == 0 {
-            return Err(err(StatusCode::NOT_FOUND, "no such rule"));
-        }
-        off
-    };
-    Ok(Json(
-        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
-    ))
-}
-
-async fn delete_rule(State(s): St, Path(id): Path<i64>) -> ApiResult {
-    let off = {
-        let conn = s.db.lock().unwrap();
-        let off = take_off_command(&conn, id, "deleted")?;
-        conn.execute("DELETE FROM rules WHERE id = ?1", [id])?;
-        off
-    };
-    Ok(Json(
-        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,7 +577,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_and_rules_with_token() {
+    async fn status_with_token() {
         let app = app();
         let auth = format!("Bearer {}", "t".repeat(64));
         let r = app
@@ -756,78 +594,6 @@ mod tests {
         let body = r.into_body().collect().await.unwrap().to_bytes();
         let v: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["hub"]["paired"], false);
-
-        let rule = json!({"name":"hot","node_id":1,"channel":0,"op":"gt","threshold":30000,"target_node":1,"target_channel":2});
-        let r = app
-            .clone()
-            .oneshot(
-                Request::post("/api/rules")
-                    .header("authorization", &auth)
-                    .header("content-type", "application/json")
-                    .body(Body::from(rule.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn editing_or_deleting_an_active_rule_sends_off() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        db::init(&conn).unwrap();
-        conn.execute_batch(
-            "INSERT INTO rules (id, name, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value, active)
-             VALUES (1, 'hot', 1, 0, 'gt', 30000, 1, 3, 1, 0, 1),
-                    (2, 'hot2', 1, 0, 'gt', 30000, 1, 2, 1, 0, 1);",
-        )
-        .unwrap();
-        let state = Arc::new(AppState::new(conn, &[9u8; 32], "t".repeat(64)));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        state.hub.lock().unwrap().tx = Some(tx);
-        let app = router(state);
-        let auth = format!("Bearer {}", "t".repeat(64));
-
-        let edit = json!({"name":"hot","node_id":1,"channel":0,"op":"gt","threshold":35000,"target_node":1,"target_channel":3,"on_value":1,"off_value":0});
-        let r = app
-            .clone()
-            .oneshot(
-                Request::put("/api/rules/1")
-                    .header("authorization", &auth)
-                    .header("content-type", "application/json")
-                    .body(Body::from(edit.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
-        assert_eq!(
-            rx.try_recv().unwrap(),
-            PcMsg::Command {
-                node_id: 1,
-                channel: 3,
-                value: 0
-            }
-        );
-
-        let r = app
-            .oneshot(
-                Request::delete("/api/rules/2")
-                    .header("authorization", &auth)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
-        assert_eq!(
-            rx.try_recv().unwrap(),
-            PcMsg::Command {
-                node_id: 1,
-                channel: 2,
-                value: 0
-            }
-        );
     }
 
     #[test]

@@ -95,7 +95,7 @@
 - Unpair a node:
   - Devices → Unpair (hub must be online)
   - and hold BOOT on the node 10 s
-  - deletes its rules; id never reused
+  - id never reused; recipes that use it stop working (edit or delete them)
 - Unpair a phone: Pairing → Paired phones → Unpair (hub must be online)
 
 ## Using the desktop app
