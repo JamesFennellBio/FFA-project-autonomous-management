@@ -2,11 +2,11 @@
 //! time so passwords never end up in git:
 //!
 //! ```bash
-//! export FFA_WIFI_SSID="FarmNet"
-//! export FFA_WIFI_PASSWORD="your-password"
-//! export FFA_HUB_IP="192.168.1.10"     # the Pi's IP address
-//! export FFA_TRANSPORT="auto"          # wifi | lora | auto
-//! export FFA_HUB_KEY="<64 hex chars>"  # from `hub-node fingerprint` (recommended)
+//! export FARMLAB_WIFI_SSID="FarmNet"
+//! export FARMLAB_WIFI_PASSWORD="your-password"
+//! export FARMLAB_HUB_IP="192.168.1.10"     # the Pi's IP address
+//! export FARMLAB_TRANSPORT="auto"          # wifi | lora | auto
+//! export FARMLAB_HUB_KEY="<64 hex chars>"  # from `hub-node fingerprint` (recommended)
 //! cargo run --release
 //! ```
 //!
@@ -23,23 +23,23 @@ pub enum TransportMode {
     Auto,
 }
 
-pub const WIFI_SSID: &str = match option_env!("FFA_WIFI_SSID") {
+pub const WIFI_SSID: &str = match option_env!("FARMLAB_WIFI_SSID") {
     Some(s) => s,
     None => "",
 };
-pub const WIFI_PASSWORD: &str = match option_env!("FFA_WIFI_PASSWORD") {
+pub const WIFI_PASSWORD: &str = match option_env!("FARMLAB_WIFI_PASSWORD") {
     Some(s) => s,
     None => "",
 };
-const HUB_IP_STR: &str = match option_env!("FFA_HUB_IP") {
+const HUB_IP_STR: &str = match option_env!("FARMLAB_HUB_IP") {
     Some(s) => s,
     None => "192.168.1.10",
 };
 /// CRYPTO-REVIEW: the hub's 64-hex-char public key (`hub-node fingerprint`).
 /// Strongly recommended: the node then refuses to pair with any other hub.
 /// It's a public key, so putting it in the firmware is fine.
-const HUB_KEY_STR: Option<&str> = option_env!("FFA_HUB_KEY");
-const TRANSPORT_STR: &str = match option_env!("FFA_TRANSPORT") {
+const HUB_KEY_STR: Option<&str> = option_env!("FARMLAB_HUB_KEY");
+const TRANSPORT_STR: &str = match option_env!("FARMLAB_TRANSPORT") {
     Some(s) => s,
     None => "wifi",
 };
@@ -63,7 +63,7 @@ pub fn transport() -> TransportMode {
     }
 }
 
-/// The pinned hub key, if FFA_HUB_KEY was set. A malformed value panics at
+/// The pinned hub key, if FARMLAB_HUB_KEY was set. A malformed value panics at
 /// boot so a typo can't silently fall back to trust-on-first-use.
 pub fn hub_key() -> Option<[u8; 32]> {
     let s = HUB_KEY_STR?.trim();
@@ -71,12 +71,12 @@ pub fn hub_key() -> Option<[u8; 32]> {
         return None;
     }
     let b = s.as_bytes();
-    assert!(b.len() == 64, "FFA_HUB_KEY must be 64 hex characters");
+    assert!(b.len() == 64, "FARMLAB_HUB_KEY must be 64 hex characters");
     let nib = |c: u8| match c {
         b'0'..=b'9' => c - b'0',
         b'a'..=b'f' => c - b'a' + 10,
         b'A'..=b'F' => c - b'A' + 10,
-        _ => panic!("FFA_HUB_KEY must be hex"),
+        _ => panic!("FARMLAB_HUB_KEY must be hex"),
     };
     let mut k = [0u8; 32];
     for (i, out) in k.iter_mut().enumerate() {

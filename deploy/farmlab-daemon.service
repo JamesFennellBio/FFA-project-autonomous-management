@@ -1,14 +1,14 @@
 # systemd *user* unit for the PC daemon (Linux).
 #   cargo build --release -p pc-daemon
 #   cp target/release/pc-daemon ~/.local/bin/
-#   mkdir -p ~/.config/systemd/user && cp deploy/ffa-daemon.service ~/.config/systemd/user/
-#   systemctl --user enable --now ffa-daemon
+#   mkdir -p ~/.config/systemd/user && cp deploy/farmlab-daemon.service ~/.config/systemd/user/
+#   systemctl --user enable --now farmlab-daemon
 #
 # Windows: run pc-daemon.exe from Task Scheduler "At log on".
 # macOS: use a LaunchAgent plist.
 
 [Unit]
-Description=FFA farm/lab daemon (REST API for the app)
+Description=Farm/lab daemon (REST API for the app)
 
 [Service]
 ExecStart=%h/.local/bin/pc-daemon

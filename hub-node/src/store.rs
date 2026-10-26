@@ -104,6 +104,77 @@ impl Store {
             })? as u64)
     }
 
+    /// Averages of one channel since `since`, in at most `points` buckets.
+    pub fn history(
+        &self,
+        node_id: u16,
+        channel: u8,
+        since: i64,
+        points: usize,
+    ) -> Result<Vec<(i64, i32)>> {
+        let now = uplink::unix_now();
+        let bucket = ((now - since).max(1) / points.max(1) as i64).max(1);
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT (ts / ?4) * ?4 AS t, CAST(AVG(json_extract(json, '$.value')) AS INTEGER)
+             FROM outbox
+             WHERE json_extract(json, '$.type') = 'reading'
+               AND json_extract(json, '$.node_id') = ?1 AND json_extract(json, '$.channel') = ?2
+               AND ts >= ?3
+             GROUP BY t ORDER BY t",
+        )?;
+        let rows = stmt.query_map(params![node_id, channel, since, bucket], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        let mut v: Vec<(i64, i32)> = rows.collect::<rusqlite::Result<_>>()?;
+        // Rounding can make one extra bucket; drop the oldest.
+        let extra = v.len().saturating_sub(points);
+        v.drain(..extra);
+        Ok(v)
+    }
+
+    /// Newest alerts, recipe alerts and dropped commands, older than `before`.
+    pub fn events(&self, before: Option<i64>, limit: usize) -> Result<Vec<(i64, HubMsg)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, json FROM outbox
+             WHERE json_extract(json, '$.type') IN ('alert', 'recipe_alert', 'command_dropped')
+               AND id < ?1
+             ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![before.unwrap_or(i64::MAX), limit as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, json) = row?;
+            if let Ok(m) = serde_json::from_str(&json) {
+                out.push((id, m));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Each node's newest Announce and each channel's newest reading, so the
+    /// phone app has something to show right after the hub restarts.
+    pub fn latest(&self) -> Result<Vec<HubMsg>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT json FROM outbox WHERE id IN (
+                SELECT MAX(id) FROM outbox WHERE json_extract(json, '$.type') = 'announce'
+                GROUP BY json_extract(json, '$.node_id')
+                UNION ALL
+                SELECT MAX(id) FROM outbox WHERE json_extract(json, '$.type') = 'reading'
+                GROUP BY json_extract(json, '$.node_id'), json_extract(json, '$.channel'))
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            if let Ok(m) = serde_json::from_str(&row?) {
+                out.push(m);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn prune(&mut self, now: i64) -> Result<usize> {
         Ok(self
             .conn
@@ -161,6 +232,38 @@ mod tests {
             s.push(&msg(3)).unwrap() > b,
             "ids keep increasing after restore"
         );
+    }
+
+    #[test]
+    fn history_events_and_latest() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(&dir.path().join("hub.db")).unwrap();
+        let now = uplink::unix_now();
+        for v in [10, 20, 30] {
+            s.push(&msg(v)).unwrap();
+        }
+        s.push(&HubMsg::Alert {
+            node_id: 1,
+            channel: 0,
+            code: 2,
+            value: 5,
+            ts: now,
+        })
+        .unwrap();
+        // 1-hour buckets. The three rows can still straddle a bucket edge
+        // if the clock ticks over between them, so allow two buckets.
+        let h = s.history(1, 0, now - 7200, 2).unwrap();
+        assert!(!h.is_empty() && h.len() <= 2, "{h:?}");
+        if h.len() == 1 {
+            assert_eq!(h[0].1, 20, "averaged");
+        }
+        assert!(s.history(1, 1, now - 3600, 60).unwrap().is_empty());
+        let ev = s.events(None, 10).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(s.events(Some(ev[0].0), 10).unwrap().is_empty());
+        let latest = s.latest().unwrap();
+        assert_eq!(latest.len(), 1);
+        assert!(matches!(latest[0], HubMsg::Reading { value: 30, .. }));
     }
 
     #[test]

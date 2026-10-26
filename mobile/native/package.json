@@ -1,0 +1,31 @@
+{
+  "name": "farmlab-hub-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rust hub link (mobile/core) for the farm/lab phone app, as a React Native turbo module",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "react-native": "src/index.tsx",
+  "source": "src/index.tsx",
+  "files": ["src", "cpp", "android", "ios", "*.podspec", "ubrn.config.yaml"],
+  "scripts": {
+    "ubrn:android": "ubrn build android --config ubrn.config.yaml --and-generate --release",
+    "ubrn:ios": "ubrn build ios --config ubrn.config.yaml --and-generate --release",
+    "ubrn:clean": "rm -rf android/build android/src/main/jniLibs ios/build cpp/generated src/generated"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "uniffi-bindgen-react-native": "0.31.0-6"
+  },
+  "codegenConfig": {
+    "name": "RNFarmlabHubNativeSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.farmlabhubnative"
+    }
+  }
+}

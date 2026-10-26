@@ -37,11 +37,18 @@ export interface Status {
 }
 
 export interface PendingPair {
-  kind: "hub" | "node";
+  kind: "hub" | "node" | "phone";
   public_key: string;
   fingerprint: string;
   transport: "wifi" | "lora" | null;
   seen_at: number;
+}
+
+export interface Phone {
+  id: number;
+  fingerprint: string;
+  name: string;
+  paired_at: number;
 }
 
 export interface Reading {
@@ -61,19 +68,34 @@ export interface Alert {
   acked: boolean;
 }
 
-export interface Rule {
+
+// Recipes: stored and run on the hub (hub-node/src/recipes.rs). The phone app
+// edits the same ones (mobile/app/src/hub/types.ts).
+export type Op = "gt" | "lt" | "ge" | "le" | "eq" | "ne";
+
+export type Cond =
+  | { type: "compare"; node: number; channel: number; op: Op; value: number }
+  | { type: "and"; all: Cond[] }
+  | { type: "or"; any: Cond[] }
+  | { type: "not"; cond: Cond };
+
+export type Action =
+  | { type: "set"; node: number; channel: number; value: number }
+  | { type: "alert"; text: string };
+
+export interface Recipe {
   id: number;
   name: string;
   enabled: boolean;
-  node_id: number;
-  channel: number;
-  op: "gt" | "lt";
-  threshold: number;
-  target_node: number;
-  target_channel: number;
-  on_value: number;
-  off_value: number | null;
-  active: boolean;
+  when: Cond;
+  then: Action[];
+  otherwise: Action[];
 }
 
-export type RuleInput = Omit<Rule, "id" | "active">;
+export interface RecipeSummary {
+  id: number;
+  name: string;
+  enabled: boolean;
+}
+
+export type RecipeInput = Omit<Recipe, "id">;

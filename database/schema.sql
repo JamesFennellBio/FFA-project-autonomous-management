@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     sessions    INTEGER NOT NULL DEFAULT 0 -- number of ECDH handshakes seen
 );
 
+-- Phones running the mobile app. They pair with the hub (approved here) and
+-- talk to it on its phone port; they never connect to this PC.
+CREATE TABLE IF NOT EXISTS phones (
+    id          INTEGER PRIMARY KEY,       -- phone id in frames on the hub's phone port (u16)
+    public_key  TEXT NOT NULL UNIQUE,      -- CRYPTO-REVIEW: Ed25519 key (hex) the hub pins
+    name        TEXT NOT NULL,
+    paired_at   INTEGER NOT NULL
+);
+
 -- One row per pin the node reported in its Announce.
 CREATE TABLE IF NOT EXISTS channels (
     node_id     INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
@@ -50,7 +59,7 @@ CREATE TABLE IF NOT EXISTS commands (
     node_id     INTEGER NOT NULL,
     channel     INTEGER NOT NULL,
     value       INTEGER NOT NULL,
-    source      TEXT NOT NULL,             -- 'app' | 'rule:<id>'
+    source      TEXT NOT NULL,             -- 'app' | 'rule:<id>' | 'phone:<id>' | 'recipe:<id>'
     ts          INTEGER NOT NULL,
     -- 'queued' (sent to hub) -> 'sent' (hub transmitted it) -> 'acked' (node
     -- confirmed it applied it), or 'dropped' (hub queue overflowed).
@@ -68,7 +77,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     id          INTEGER PRIMARY KEY,
     node_id     INTEGER,
     channel     INTEGER,
-    code        INTEGER NOT NULL,          -- 1 sensor fault, 2 threshold, 3 rebooted, 100 rule fired, 101 command dropped, 102 pairing refused
+    code        INTEGER NOT NULL,          -- 1 sensor fault, 2 threshold, 3 rebooted, 100 rule fired, 101 command dropped, 102 pairing refused, 103 hub recipe alert
     value       INTEGER,
     message     TEXT NOT NULL,
     ts          INTEGER NOT NULL,
@@ -82,19 +91,6 @@ CREATE TABLE IF NOT EXISTS messages (
     ts          INTEGER NOT NULL
 );
 
--- Automation: "if <node.channel> <op> <threshold> then set <target> to on_value
--- (and back to off_value when it clears)".
-CREATE TABLE IF NOT EXISTS rules (
-    id              INTEGER PRIMARY KEY,
-    name            TEXT NOT NULL,
-    enabled         INTEGER NOT NULL DEFAULT 1,
-    node_id         INTEGER NOT NULL,
-    channel         INTEGER NOT NULL,
-    op              TEXT NOT NULL CHECK (op IN ('gt', 'lt')),
-    threshold       INTEGER NOT NULL,
-    target_node     INTEGER NOT NULL,
-    target_channel  INTEGER NOT NULL,
-    on_value        INTEGER NOT NULL DEFAULT 1,
-    off_value       INTEGER,               -- NULL = leave it on until a person turns it off
-    active          INTEGER NOT NULL DEFAULT 0
-);
+-- The PC used to run its own automation rules. Recipes on the hub replaced
+-- them (hub-node/src/recipes.rs), so an old database loses that table.
+DROP TABLE IF EXISTS rules;

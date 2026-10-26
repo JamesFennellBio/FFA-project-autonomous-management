@@ -3,14 +3,13 @@
 //! - Listens for the Pi hub on TCP (default 0.0.0.0:7400). That link is encrypted
 //!   with the same ECDH + ChaCha20-Poly1305 protocol the nodes use.
 //! - Stores everything in SQLite (full history).
-//! - Runs automation rules (e.g. "temp > 30 °C -> siren on").
+//! - Passes the desktop app's recipe edits to the hub, which runs them.
 //! - Serves the REST API for the Electron app on 127.0.0.1:7401 only.
 
 mod api;
 mod auth;
 mod db;
 mod hub_link;
-mod rules;
 mod state;
 
 use std::net::SocketAddr;
@@ -22,7 +21,7 @@ use clap::Parser;
 use tracing::info;
 
 #[derive(Parser)]
-#[command(about = "FFA farm/lab management daemon")]
+#[command(about = "Farm/lab management daemon")]
 struct Args {
     /// Where the identity key and API token live (default: OS config dir).
     #[arg(long)]
@@ -47,7 +46,7 @@ async fn main() -> Result<()> {
         .init();
     let args = Args::parse();
 
-    let dirs = directories::ProjectDirs::from("org", "ffa", "ffa-daemon");
+    let dirs = directories::ProjectDirs::from("org", "farmlab", "farmlab-daemon");
     let config_dir = args
         .config_dir
         .or_else(|| dirs.as_ref().map(|d| d.config_dir().to_path_buf()))
@@ -62,7 +61,7 @@ async fn main() -> Result<()> {
     // CRYPTO-REVIEW: the PC's long-term Ed25519 identity (the hub pins it at pairing).
     let seed = uplink::load_or_create_secret(&config_dir.join("identity.key"))?;
     let token = auth::load_or_create_token(&config_dir.join("api-token"))?;
-    let conn = db::open(&data_dir.join("ffa.db"))?;
+    let conn = db::open(&data_dir.join("farmlab.db"))?;
 
     let state = Arc::new(state::AppState::new(conn, &seed, token));
     info!(

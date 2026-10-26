@@ -14,20 +14,24 @@
 //! | GET    | /api/readings?node_id&channel&since&until&limit | history |
 //! | GET    | /api/alerts?unacked=true                      | alerts |
 //! | POST   | /api/alerts/{id}/ack                          | acknowledge |
-//! | GET    | /api/rules  · POST /api/rules                 | automation rules |
-//! | PUT    | /api/rules/{id} · DELETE /api/rules/{id}      | |
+//! | GET    | /api/phones                                   | phones paired with the hub |
+//! | DELETE | /api/phones/{id}                              | unpair a phone |
+//! | GET    | /api/recipes · POST /api/recipes              | hub recipes (Blockly); passed to the hub |
+//! | GET    | /api/recipes/{id} · PUT · DELETE              | |
+//! | POST   | /api/recipes/{id}/enabled                     | `{"enabled": true}` |
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router, middleware};
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
-use uplink::{PcMsg, unix_now};
+use uplink::{DeviceKind, PcMsg, RecipeOp, unix_now};
 
 use crate::state::{AppState, PairKind};
 use crate::{auth, db};
@@ -42,11 +46,17 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/nodes/{id}", patch(rename_node).delete(delete_node))
         .route("/api/nodes/{id}/channels/{ch}", patch(rename_channel))
         .route("/api/nodes/{id}/channels/{ch}/command", post(command))
+        .route("/api/phones", get(list_phones))
+        .route("/api/phones/{id}", delete(delete_phone))
         .route("/api/readings", get(readings))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/{id}/ack", post(ack_alert))
-        .route("/api/rules", get(list_rules).post(create_rule))
-        .route("/api/rules/{id}", put(update_rule).delete(delete_rule))
+        .route("/api/recipes", get(list_recipes).post(create_recipe))
+        .route(
+            "/api/recipes/{id}",
+            get(get_recipe).put(update_recipe).delete(delete_recipe),
+        )
+        .route("/api/recipes/{id}/enabled", post(set_recipe_enabled))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,
@@ -54,6 +64,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+#[derive(Debug)]
 pub struct ApiError(StatusCode, String);
 
 impl IntoResponse for ApiError {
@@ -65,6 +76,12 @@ impl IntoResponse for ApiError {
 impl<E: Into<anyhow::Error>> From<E> for ApiError {
     fn from(e: E) -> Self {
         ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{:#}", e.into()))
+    }
+}
+
+impl ApiError {
+    pub fn message(&self) -> &str {
+        &self.1
     }
 }
 
@@ -106,20 +123,72 @@ struct NameBody {
 /// CRYPTO-REVIEW: the human approval step of pairing. A device's key is only
 /// trusted after someone clicks Approve on its fingerprint here.
 async fn approve(State(s): St, Path(key): Path<String>, body: Option<Json<NameBody>>) -> ApiResult {
-    let p = s.pending.lock().unwrap().remove(&key).ok_or_else(|| {
+    let name = body.and_then(|b| b.0.name);
+    approve_key(&s, &key, name, false).map(Json)
+}
+
+/// Approves a waiting device. `nodes_only` is set when a paired phone asked
+/// (through the hub): a phone may approve nodes, but never a hub or another phone.
+///
+/// CRYPTO-REVIEW: only keys that are in the pending list (they sent a signed
+/// pairing request in the last few minutes) can be approved.
+pub(crate) fn approve_key(
+    s: &AppState,
+    key: &str,
+    name: Option<String>,
+    nodes_only: bool,
+) -> Result<Value, ApiError> {
+    let name = name.filter(|n| !n.trim().is_empty());
+    let mut pending = s.pending.lock().unwrap();
+    if nodes_only && pending.get(key).is_some_and(|p| p.kind != PairKind::Node) {
+        return Err(err(StatusCode::FORBIDDEN, "phones can only approve nodes"));
+    }
+    let p = pending.remove(key).ok_or_else(|| {
         err(
             StatusCode::NOT_FOUND,
             "no such pairing request (it may have expired)",
         )
     })?;
+    drop(pending);
     let pk = uplink::key_from_hex(&p.public_key)?;
     match p.kind {
         PairKind::Hub => {
             *s.approved_hub.lock().unwrap() = Some(pk);
-            Ok(Json(json!({ "ok": true, "kind": "hub" })))
+            Ok(json!({ "ok": true, "kind": "hub" }))
+        }
+        PairKind::Phone => {
+            let phone_id = {
+                let conn = s.db.lock().unwrap();
+                let existing: Option<i64> = conn
+                    .query_row(
+                        "SELECT id FROM phones WHERE public_key = ?1",
+                        [&p.public_key],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                match existing {
+                    Some(id) => id as u16,
+                    None => {
+                        let id = db::next_phone_id(&conn)?;
+                        conn.execute(
+                            "INSERT INTO phones (id, public_key, name, paired_at) VALUES (?1, ?2, ?3, ?4)",
+                            params![id, p.public_key, name.unwrap_or_else(|| format!("Phone {id}")), unix_now()],
+                        )?;
+                        id
+                    }
+                }
+            };
+            if !s.send_to_hub(PcMsg::ApprovePair {
+                public_key: p.public_key.clone(),
+                node_id: phone_id,
+                kind: DeviceKind::Phone,
+            }) {
+                s.add_pending(p);
+                return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
+            }
+            Ok(json!({ "ok": true, "kind": "phone", "phone_id": phone_id }))
         }
         PairKind::Node => {
-            let name = body.and_then(|b| b.0.name).filter(|n| !n.trim().is_empty());
             let node_id = {
                 let conn = s.db.lock().unwrap();
                 let existing: Option<i64> = conn
@@ -144,15 +213,62 @@ async fn approve(State(s): St, Path(key): Path<String>, body: Option<Json<NameBo
             if !s.send_to_hub(PcMsg::ApprovePair {
                 public_key: p.public_key.clone(),
                 node_id,
+                kind: DeviceKind::Node,
             }) {
                 s.add_pending(p);
                 return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
             }
-            Ok(Json(
-                json!({ "ok": true, "kind": "node", "node_id": node_id }),
-            ))
+            send_labels(s);
+            Ok(json!({ "ok": true, "kind": "node", "node_id": node_id }))
         }
     }
+}
+
+/// Sends node/channel names to the hub for the phone app (skipped if the hub
+/// is offline; it gets them again when it connects).
+fn send_labels(s: &AppState) {
+    let labels = db::labels(&s.db.lock().unwrap());
+    match labels {
+        Ok(m) => {
+            s.send_to_hub(m);
+        }
+        Err(e) => tracing::warn!("reading labels: {e:#}"),
+    }
+}
+
+async fn list_phones(State(s): St) -> ApiResult {
+    let conn = s.db.lock().unwrap();
+    let phones: Vec<Value> = conn
+        .prepare("SELECT id, public_key, name, paired_at FROM phones ORDER BY id")?
+        .query_map([], |r| {
+            let pk: String = r.get(1)?;
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "fingerprint": uplink::key_from_hex(&pk).map(|k| uplink::fingerprint_hex(&k)).unwrap_or_default(),
+                "name": r.get::<_, String>(2)?,
+                "paired_at": r.get::<_, i64>(3)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Json(json!(phones)))
+}
+
+/// Unpairs a phone. Like nodes, the hub must hear about it, so this refuses
+/// while the hub is offline (a lost phone must really stop working).
+async fn delete_phone(State(s): St, Path(id): Path<u16>) -> ApiResult {
+    if !s.send_to_hub(PcMsg::Unpair {
+        node_id: id,
+        kind: DeviceKind::Phone,
+    }) {
+        return Err(err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hub is offline; it must be connected to unpair a phone",
+        ));
+    }
+    s.db.lock()
+        .unwrap()
+        .execute("DELETE FROM phones WHERE id = ?1", [id])?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn reject(State(s): St, Path(key): Path<String>) -> ApiResult {
@@ -212,25 +328,25 @@ async fn rename_node(State(s): St, Path(id): Path<u16>, Json(b): Json<NameBody>)
     if n == 0 {
         return Err(err(StatusCode::NOT_FOUND, "no such node"));
     }
+    send_labels(&s);
     Ok(Json(json!({ "ok": true })))
 }
 
 /// Unpairs a node. The hub has to hear about it, or it would keep trusting
-/// the node's key, so this refuses while the hub is offline. The node's rules
-/// go too, so they can never act on another device (finding 16). Its id is
-/// never handed out again (see db::next_node_id).
+/// the node's key, so this refuses while the hub is offline. Its id is never
+/// handed out again (see db::next_node_id), so nothing that still names it
+/// can act on another device (finding 16).
 async fn delete_node(State(s): St, Path(id): Path<u16>) -> ApiResult {
-    if !s.send_to_hub(PcMsg::Unpair { node_id: id }) {
+    if !s.send_to_hub(PcMsg::Unpair {
+        node_id: id,
+        kind: DeviceKind::Node,
+    }) {
         return Err(err(
             StatusCode::SERVICE_UNAVAILABLE,
             "hub is offline; it must be connected to unpair a node",
         ));
     }
     let conn = s.db.lock().unwrap();
-    conn.execute(
-        "DELETE FROM rules WHERE node_id = ?1 OR target_node = ?1",
-        [id],
-    )?;
     conn.execute("DELETE FROM nodes WHERE id = ?1", [id])?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -247,6 +363,7 @@ async fn rename_channel(
         "UPDATE channels SET name = ?3 WHERE node_id = ?1 AND channel = ?2",
         params![id, ch, name],
     )?;
+    send_labels(&s);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -284,6 +401,81 @@ async fn command(
         return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+/// How long an API call waits for the hub to answer a recipe request. The hub
+/// sends to the PC once a second.
+const RECIPE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Hub recipes are at most ~1.1 KB of JSON; anything far bigger is refused
+/// here so it can't make an uplink frame too big.
+const MAX_RECIPE_BODY: usize = 4096;
+
+/// Recipes live on the hub (hub-node/src/recipes.rs). The PC only passes
+/// requests on and returns the hub's answer, so the phone and desktop apps
+/// always see the same recipes.
+async fn ask_hub(s: &AppState, op: RecipeOp) -> ApiResult {
+    let rx = s
+        .send_recipe(op)
+        .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"))?;
+    match tokio::time::timeout(RECIPE_TIMEOUT, rx).await {
+        Ok(Ok(Ok(v))) => Ok(Json(v)),
+        Ok(Ok(Err(why))) => Err(err(StatusCode::BAD_REQUEST, &why)),
+        _ => Err(err(StatusCode::GATEWAY_TIMEOUT, "the hub didn't answer")),
+    }
+}
+
+fn recipe_body(mut recipe: Value, id: u32) -> Result<RecipeOp, ApiError> {
+    let obj = recipe
+        .as_object_mut()
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "recipe must be an object"))?;
+    obj.insert("id".into(), json!(id));
+    if serde_json::to_vec(&recipe).map_or(usize::MAX, |v| v.len()) > MAX_RECIPE_BODY {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "recipe is too big"));
+    }
+    Ok(RecipeOp::Save { recipe })
+}
+
+async fn list_recipes(State(s): St) -> ApiResult {
+    ask_hub(&s, RecipeOp::List).await
+}
+
+async fn get_recipe(State(s): St, Path(id): Path<u32>) -> ApiResult {
+    ask_hub(&s, RecipeOp::Get { id }).await
+}
+
+async fn create_recipe(State(s): St, Json(recipe): Json<Value>) -> ApiResult {
+    ask_hub(&s, recipe_body(recipe, 0)?).await
+}
+
+async fn update_recipe(State(s): St, Path(id): Path<u32>, Json(recipe): Json<Value>) -> ApiResult {
+    if id == 0 {
+        return Err(err(StatusCode::BAD_REQUEST, "no such recipe"));
+    }
+    ask_hub(&s, recipe_body(recipe, id)?).await
+}
+
+async fn delete_recipe(State(s): St, Path(id): Path<u32>) -> ApiResult {
+    ask_hub(&s, RecipeOp::Delete { id }).await
+}
+
+#[derive(Deserialize)]
+struct EnabledBody {
+    enabled: bool,
+}
+
+async fn set_recipe_enabled(
+    State(s): St,
+    Path(id): Path<u32>,
+    Json(b): Json<EnabledBody>,
+) -> ApiResult {
+    ask_hub(
+        &s,
+        RecipeOp::SetEnabled {
+            id,
+            enabled: b.enabled,
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -361,160 +553,6 @@ async fn ack_alert(State(s): St, Path(id): Path<i64>) -> ApiResult {
     Ok(Json(json!({ "ok": true })))
 }
 
-#[derive(Deserialize, Serialize)]
-struct RuleBody {
-    name: String,
-    #[serde(default = "yes")]
-    enabled: bool,
-    node_id: u16,
-    channel: u8,
-    op: String,
-    threshold: i32,
-    target_node: u16,
-    target_channel: u8,
-    #[serde(default = "one")]
-    on_value: i32,
-    off_value: Option<i32>,
-}
-
-fn yes() -> bool {
-    true
-}
-fn one() -> i32 {
-    1
-}
-
-impl RuleBody {
-    fn check(&self) -> Result<(), ApiError> {
-        if self.op != "gt" && self.op != "lt" {
-            return Err(err(StatusCode::BAD_REQUEST, "op must be \"gt\" or \"lt\""));
-        }
-        if self.name.trim().is_empty() {
-            return Err(err(StatusCode::BAD_REQUEST, "name required"));
-        }
-        Ok(())
-    }
-}
-
-async fn list_rules(State(s): St) -> ApiResult {
-    let conn = s.db.lock().unwrap();
-    let mut stmt = conn.prepare(
-        "SELECT id, name, enabled, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value, active
-         FROM rules ORDER BY id",
-    )?;
-    let rows: Vec<Value> = stmt
-        .query_map([], |r| {
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "name": r.get::<_, String>(1)?,
-                "enabled": r.get::<_, i64>(2)? != 0,
-                "node_id": r.get::<_, i64>(3)?,
-                "channel": r.get::<_, i64>(4)?,
-                "op": r.get::<_, String>(5)?,
-                "threshold": r.get::<_, i64>(6)?,
-                "target_node": r.get::<_, i64>(7)?,
-                "target_channel": r.get::<_, i64>(8)?,
-                "on_value": r.get::<_, i64>(9)?,
-                "off_value": r.get::<_, Option<i64>>(10)?,
-                "active": r.get::<_, i64>(11)? != 0,
-            }))
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    Ok(Json(json!(rows)))
-}
-
-async fn create_rule(State(s): St, Json(b): Json<RuleBody>) -> ApiResult {
-    b.check()?;
-    let conn = s.db.lock().unwrap();
-    conn.execute(
-        "INSERT INTO rules (name, enabled, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![b.name, b.enabled, b.node_id, b.channel, b.op, b.threshold, b.target_node, b.target_channel, b.on_value, b.off_value],
-    )?;
-    Ok(Json(json!({ "ok": true, "id": conn.last_insert_rowid() })))
-}
-
-/// If rule `id` is currently "on" and has an off value, records the off
-/// command and returns it for sending. Call before the rule is changed or
-/// removed, so its output isn't left latched (findings 24 and FYEO scan 2).
-fn take_off_command(
-    conn: &rusqlite::Connection,
-    id: i64,
-    why: &str,
-) -> Result<Option<(u16, u8, i32)>, ApiError> {
-    let row: Option<(u16, u8, Option<i32>, bool)> = conn
-        .query_row(
-            "SELECT target_node, target_channel, off_value, active FROM rules WHERE id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)),
-        )
-        .optional()?;
-    match row {
-        Some((node, ch, Some(v), true)) => {
-            db::insert_command(conn, node, ch, v, &format!("rule:{id}:{why}"), unix_now())?;
-            Ok(Some((node, ch, v)))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn send_off(s: &AppState, off: Option<(u16, u8, i32)>) -> bool {
-    match off {
-        Some((node_id, channel, value)) => s.send_to_hub(PcMsg::Command {
-            node_id,
-            channel,
-            value,
-        }),
-        None => false,
-    }
-}
-
-/// Editing a rule resets it to "not fired". If it was on, its off command goes
-/// out first; the edited rule fires again on the next reading if it still matches.
-async fn update_rule(State(s): St, Path(id): Path<i64>, Json(b): Json<RuleBody>) -> ApiResult {
-    b.check()?;
-    let off = {
-        let conn = s.db.lock().unwrap();
-        let off = take_off_command(&conn, id, "edited")?;
-        let n = conn.execute(
-            "UPDATE rules SET name=?2, enabled=?3, node_id=?4, channel=?5, op=?6, threshold=?7,
-                target_node=?8, target_channel=?9, on_value=?10, off_value=?11, active=0 WHERE id=?1",
-            params![
-                id,
-                b.name,
-                b.enabled,
-                b.node_id,
-                b.channel,
-                b.op,
-                b.threshold,
-                b.target_node,
-                b.target_channel,
-                b.on_value,
-                b.off_value
-            ],
-        )?;
-        if n == 0 {
-            return Err(err(StatusCode::NOT_FOUND, "no such rule"));
-        }
-        off
-    };
-    Ok(Json(
-        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
-    ))
-}
-
-async fn delete_rule(State(s): St, Path(id): Path<i64>) -> ApiResult {
-    let off = {
-        let conn = s.db.lock().unwrap();
-        let off = take_off_command(&conn, id, "deleted")?;
-        conn.execute("DELETE FROM rules WHERE id = ?1", [id])?;
-        off
-    };
-    Ok(Json(
-        json!({ "ok": true, "sent_off_command": send_off(&s, off) }),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,7 +577,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_and_rules_with_token() {
+    async fn status_with_token() {
         let app = app();
         let auth = format!("Bearer {}", "t".repeat(64));
         let r = app
@@ -556,77 +594,106 @@ mod tests {
         let body = r.into_body().collect().await.unwrap().to_bytes();
         let v: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["hub"]["paired"], false);
+    }
 
-        let rule = json!({"name":"hot","node_id":1,"channel":0,"op":"gt","threshold":30000,"target_node":1,"target_channel":2});
-        let r = app
-            .clone()
-            .oneshot(
-                Request::post("/api/rules")
-                    .header("authorization", &auth)
-                    .header("content-type", "application/json")
-                    .body(Body::from(rule.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
+    #[test]
+    fn phones_pair_with_their_own_ids_and_can_only_approve_nodes() {
+        use crate::state::PendingPair;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        let state = AppState::new(conn, &[9u8; 32], "t".repeat(64));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        state.hub.lock().unwrap().tx = Some(tx);
+        let pending = |kind, key: &str| PendingPair {
+            kind,
+            public_key: key.to_string(),
+            fingerprint: String::new(),
+            transport: None,
+            seen_at: unix_now(),
+        };
+        let phone_key = "11".repeat(32);
+        let node_key = "22".repeat(32);
+        state.add_pending(pending(PairKind::Phone, &phone_key));
+        state.add_pending(pending(PairKind::Node, &node_key));
+
+        // A phone (through the hub) can't approve another phone...
+        let e = approve_key(&state, &phone_key, None, true).unwrap_err();
+        assert_eq!(e.0, StatusCode::FORBIDDEN);
+        // ...but the desktop app can, and phone ids are separate from node ids.
+        let v = approve_key(&state, &phone_key, Some("Pixel".into()), false).unwrap();
+        assert_eq!(v["phone_id"], 1);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            PcMsg::ApprovePair {
+                public_key: phone_key,
+                node_id: 1,
+                kind: DeviceKind::Phone
+            }
+        );
+        // A phone can approve a waiting node.
+        let v = approve_key(&state, &node_key, Some("Barn".into()), true).unwrap();
+        assert_eq!(v["node_id"], 1);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            PcMsg::ApprovePair {
+                kind: DeviceKind::Node,
+                ..
+            }
+        ));
+        assert!(
+            matches!(rx.try_recv().unwrap(), PcMsg::Labels { nodes, .. } if nodes == vec![(1, "Barn".to_string())])
+        );
+        // Nothing left to approve.
+        assert!(approve_key(&state, &node_key, None, true).is_err());
     }
 
     #[tokio::test]
-    async fn editing_or_deleting_an_active_rule_sends_off() {
+    async fn recipe_requests_go_to_the_hub_and_wait_for_its_reply() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         db::init(&conn).unwrap();
-        conn.execute_batch(
-            "INSERT INTO rules (id, name, node_id, channel, op, threshold, target_node, target_channel, on_value, off_value, active)
-             VALUES (1, 'hot', 1, 0, 'gt', 30000, 1, 3, 1, 0, 1),
-                    (2, 'hot2', 1, 0, 'gt', 30000, 1, 2, 1, 0, 1);",
-        )
-        .unwrap();
         let state = Arc::new(AppState::new(conn, &[9u8; 32], "t".repeat(64)));
+
+        // Hub offline: refused at once.
+        let e = ask_hub(&state, RecipeOp::List).await.unwrap_err();
+        assert_eq!(e.0, StatusCode::SERVICE_UNAVAILABLE);
+
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         state.hub.lock().unwrap().tx = Some(tx);
-        let app = router(state);
-        let auth = format!("Bearer {}", "t".repeat(64));
-
-        let edit = json!({"name":"hot","node_id":1,"channel":0,"op":"gt","threshold":35000,"target_node":1,"target_channel":3,"on_value":1,"off_value":0});
-        let r = app
-            .clone()
-            .oneshot(
-                Request::put("/api/rules/1")
-                    .header("authorization", &auth)
-                    .header("content-type", "application/json")
-                    .body(Body::from(edit.to_string()))
-                    .unwrap(),
-            )
+        // Plays the hub: answers the first request, refuses the second.
+        let hub = {
+            let state = state.clone();
+            tokio::spawn(async move {
+                for answer in [
+                    Ok(json!({ "id": 3 })),
+                    Err("node 9 isn't paired".to_string()),
+                ] {
+                    let Some(PcMsg::Recipe { req, op }) = rx.recv().await else {
+                        panic!("no request")
+                    };
+                    assert!(matches!(op, RecipeOp::Save { ref recipe } if recipe["id"] == 0));
+                    state.recipe_reply(req, answer);
+                }
+            })
+        };
+        let body = json!({ "name": "x", "when": {}, "then": [] });
+        let Json(v) = ask_hub(&state, recipe_body(body.clone(), 0).unwrap())
             .await
             .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(v["id"], 3);
+        let e = ask_hub(&state, recipe_body(body, 0).unwrap())
+            .await
+            .unwrap_err();
         assert_eq!(
-            rx.try_recv().unwrap(),
-            PcMsg::Command {
-                node_id: 1,
-                channel: 3,
-                value: 0
-            }
+            (e.0, e.message()),
+            (StatusCode::BAD_REQUEST, "node 9 isn't paired")
         );
+        hub.await.unwrap();
 
-        let r = app
-            .oneshot(
-                Request::delete("/api/rules/2")
-                    .header("authorization", &auth)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::OK);
+        // Too big to send over the uplink.
+        let huge = json!({ "name": "x".repeat(MAX_RECIPE_BODY) });
         assert_eq!(
-            rx.try_recv().unwrap(),
-            PcMsg::Command {
-                node_id: 1,
-                channel: 2,
-                value: 0
-            }
+            recipe_body(huge, 0).unwrap_err().0,
+            StatusCode::PAYLOAD_TOO_LARGE
         );
     }
 }

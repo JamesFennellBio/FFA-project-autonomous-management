@@ -1,4 +1,4 @@
-//! Picks Wi-Fi or LoRa for each transmission, depending on `FFA_TRANSPORT`.
+//! Picks Wi-Fi or LoRa for each transmission, depending on `FARMLAB_TRANSPORT`.
 
 #[cfg(feature = "lora")]
 pub mod lora;

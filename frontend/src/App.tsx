@@ -3,7 +3,7 @@ import { api, usePoll } from "./api";
 import Dashboard from "./pages/Dashboard";
 import History from "./pages/History";
 import Pairing from "./pages/Pairing";
-import Rules from "./pages/Rules";
+import Recipes from "./pages/Recipes";
 import Alerts from "./pages/Alerts";
 import Devices from "./pages/Devices";
 
@@ -35,9 +35,14 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <span className="logo">🌱</span>
+          <span className="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 18c0-7 5-12 14-12-.5 8-5 12.5-12 12.5" />
+              <path d="M5 19l7-7" />
+            </svg>
+          </span>
           <div>
-            <div className="brand-name">FFA Farm &amp; Lab</div>
+            <div className="brand-name">Autonomous Farm &amp; Lab</div>
             <div className="brand-sub">Autonomous management</div>
           </div>
         </div>
@@ -69,7 +74,7 @@ export default function App() {
         {status.error && <div className="banner error">{status.error}</div>}
         {page === "dashboard" && <Dashboard onGoPairing={() => setPage("pairing")} />}
         {page === "history" && <History />}
-        {page === "rules" && <Rules />}
+        {page === "rules" && <Recipes />}
         {page === "alerts" && <Alerts onChange={alerts.refresh} />}
         {page === "devices" && <Devices />}
         {page === "pairing" && <Pairing status={status.data} pending={pending.data ?? []} refresh={pending.refresh} />}

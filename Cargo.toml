@@ -5,6 +5,7 @@ members = [
     "pc-daemon",
     "hub-node",
     "node-sim",
+    "mobile/core",
 ]
 # data-node is ESP32-C3 firmware (riscv32imc-unknown-none-elf, no_std). It has
 # its own workspace and target config, so it is built from inside data-node/.

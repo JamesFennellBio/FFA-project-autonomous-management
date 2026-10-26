@@ -18,7 +18,16 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p hub-node --features lora -- -D warnings
-      - run: cargo test --workspace
+      # Failing tests and their panic messages also become annotations, which
+      # GitHub shows without signing in (job logs need a sign-in).
+      - name: cargo test --workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! cargo test --workspace 2>&1 | tee test.log; then
+            grep -E '^---- |panicked at|^test .* FAILED' test.log | head -40 | sed 's/^/::error title=cargo test::/'
+            exit 1
+          fi
       - name: crypto review index is up to date
         run: ./scripts/crypto-review.sh --check
 
@@ -34,15 +43,19 @@ jobs:
           workspaces: data-node
       - name: build (Wi-Fi)
         working-directory: data-node
-        env: { FFA_WIFI_SSID: ci, FFA_WIFI_PASSWORD: ci-password }
+        env: { FARMLAB_WIFI_SSID: ci, FARMLAB_WIFI_PASSWORD: ci-password }
         run: cargo build --release
       - name: build (Wi-Fi + LoRa)
         working-directory: data-node
-        env: { FFA_WIFI_SSID: ci, FFA_TRANSPORT: auto }
+        env: { FARMLAB_WIFI_SSID: ci, FARMLAB_TRANSPORT: auto }
         run: cargo build --release --features lora
 
   audit:
     runs-on: ubuntu-latest
+    # audit-check posts its findings as a check run, which needs checks: write.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@v2
@@ -63,3 +76,18 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm audit --audit-level=high --omit=dev
+
+  # Type-checks the phone app. The Rust native module isn't built here (that
+  # needs the Android NDK / Xcode); mobile/native/src/index.tsx declares its API.
+  mobile-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run typecheck

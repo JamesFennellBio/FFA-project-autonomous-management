@@ -3,13 +3,16 @@
 //! ```text
 //!  ESP32 nodes ──LoRa (SX1262)──┐
 //!                               ├─> hub task (pairing, ECDH sessions) ──> RAM SQLite ──> PC daemon (TCP, encrypted)
-//!  ESP32 nodes ──Wi-Fi UDP──────┘                                          (flushed to SD once a day)
+//!  ESP32 nodes ──Wi-Fi UDP──────┘          │                               (flushed to SD once a day)
+//!                                          ├── recipes (hub runs them, PC can be off)
+//!  phone app ───Wi-Fi UDP (port 7301)──────┘
 //! ```
 
 mod config;
 mod hub;
 mod pc_link;
 mod radio;
+mod recipes;
 mod seed;
 mod store;
 
@@ -29,9 +32,9 @@ use crate::radio::Inbound;
 use crate::store::Store;
 
 #[derive(Parser)]
-#[command(about = "FFA farm/lab hub (Raspberry Pi)")]
+#[command(about = "Farm/lab hub (Raspberry Pi)")]
 struct Args {
-    #[arg(long, default_value = "/etc/ffa-hub/hub.toml")]
+    #[arg(long, default_value = "/etc/farmlab-hub/hub.toml")]
     config: PathBuf,
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -116,7 +119,7 @@ fn print_fingerprint(cfg: &config::Config) -> Result<()> {
     println!("Hub fingerprint: {}", uplink::fingerprint_hex(&pk));
     println!("Hub public key:  {}", uplink::key_to_hex(&pk));
     println!(
-        "(build node firmware with FFA_HUB_KEY=<public key> so nodes only pair with this hub)"
+        "(build node firmware with FARMLAB_HUB_KEY=<public key> so nodes only pair with this hub)"
     );
     Ok(())
 }
@@ -124,13 +127,14 @@ fn print_fingerprint(cfg: &config::Config) -> Result<()> {
 async fn run(cfg: config::Config) -> Result<()> {
     let seed = seed::load(&cfg.data_dir)?;
     let pc_key = cfg.pc_key()?;
-    let mut hub = Hub::new(&seed, Some(cfg.data_dir.join("paired.json")))?;
+    let mut hub = Hub::new(&seed, Some(&cfg.data_dir))?;
     info!(
         "hub fingerprint {}",
         uplink::fingerprint_hex(&hub.public_key())
     );
 
     let store = Arc::new(Mutex::new(Store::open(&cfg.data_dir.join("hub.db"))?));
+    hub.restore_live(store.lock().unwrap().latest()?);
 
     let (in_tx, mut in_rx) = mpsc::channel::<Inbound>(256);
     let (pc_tx, mut pc_rx) = mpsc::unbounded_channel();
@@ -139,7 +143,20 @@ async fn run(cfg: config::Config) -> Result<()> {
 
     let udp = Arc::new(UdpSocket::bind(&cfg.udp_listen).await?);
     info!("listening for Wi-Fi nodes on udp://{}", cfg.udp_listen);
-    tokio::spawn(radio::udp::recv_loop(udp.clone(), in_tx.clone()));
+    tokio::spawn(radio::udp::recv_loop(
+        udp.clone(),
+        in_tx.clone(),
+        radio::MAX_RADIO_FRAME,
+        Link::Udp,
+    ));
+    let app_udp = Arc::new(UdpSocket::bind(&cfg.app_listen).await?);
+    info!("listening for the phone app on udp://{}", cfg.app_listen);
+    tokio::spawn(radio::udp::recv_loop(
+        app_udp.clone(),
+        in_tx.clone(),
+        uplink::app::MAX_APP_FRAME,
+        Link::App,
+    ));
 
     #[cfg(feature = "lora")]
     let lora_tx = if cfg.lora.enabled {
@@ -169,7 +186,13 @@ async fn run(cfg: config::Config) -> Result<()> {
 
     loop {
         let out: Output = tokio::select! {
-            Some(inb) = in_rx.recv() => hub.on_frame(&inb.frame, inb.link, uplink::mono_now(), uplink::unix_now()),
+            Some(inb) = in_rx.recv() => match inb.link {
+                Link::App(addr) => {
+                    let st = store.lock().unwrap();
+                    hub.on_app_frame(&inb.frame, addr, uplink::mono_now(), uplink::unix_now(), &st)
+                }
+                link => hub.on_frame(&inb.frame, link, uplink::mono_now(), uplink::unix_now()),
+            },
             Some(msg) = pc_rx.recv() => hub.on_pc(msg, uplink::mono_now(), uplink::unix_now()),
             _ = flush.tick() => {
                 if let Err(e) = store.lock().unwrap().flush() {
@@ -188,6 +211,11 @@ async fn run(cfg: config::Config) -> Result<()> {
                 Link::Udp(addr) => {
                     if let Err(e) = udp.send_to(&frame, addr).await {
                         warn!("udp send to {addr}: {e}");
+                    }
+                }
+                Link::App(addr) => {
+                    if let Err(e) = app_udp.send_to(&frame, addr).await {
+                        warn!("udp send to phone {addr}: {e}");
                     }
                 }
                 Link::Lora =>

@@ -1,10 +1,13 @@
-# Copy to /etc/ffa-hub/hub.toml on the Raspberry Pi.
+# Copy to /etc/farmlab-hub/hub.toml on the Raspberry Pi.
 
 # identity.key, paired.json, pc_pairing.json and hub.db live here.
-data_dir = "/var/lib/ffa-hub"
+data_dir = "/var/lib/farmlab-hub"
 
 # Wi-Fi nodes send UDP frames here (port must match crypto-sharecrate/src/radio.rs).
 udp_listen = "0.0.0.0:7300"
+
+# The phone app talks to the hub here (encrypted, same pairing as nodes).
+app_listen = "0.0.0.0:7301"
 
 # The PC running pc-daemon. Give the PC a fixed IP (DHCP reservation) on your router.
 pc_addr = "192.168.1.50:7400"

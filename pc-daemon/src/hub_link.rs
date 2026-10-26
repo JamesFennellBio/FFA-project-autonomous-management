@@ -17,7 +17,8 @@ use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::{info, warn};
 use uplink::{
-    HubBatch, HubMsg, MAX_BATCH_MSGS, PcBatch, PcMsg, mono_now, read_frame, unix_now, write_frame,
+    DeviceKind, HubBatch, HubMsg, MAX_BATCH_MSGS, PcBatch, PcMsg, mono_now, read_frame, unix_now,
+    write_frame,
 };
 
 use crate::db;
@@ -229,14 +230,21 @@ async fn handle(
                             hub.tx = Some(tx.clone());
                             hub.conn_id = Some(conn_id);
                             registered = true;
+                            // The phone app shows these names.
+                            queue.push(db::labels(&state.db.lock().unwrap())?);
                             info!("hub session established");
                         }
-                        let (upto, cmds) = store_batch(&state, &batch)?;
+                        let (upto, approvals) = store_batch(&state, &batch)?;
+                        for (key, name, phone_id) in approvals {
+                            match crate::api::approve_key(&state, &key, name, true) {
+                                Ok(_) => info!("node approved from phone {phone_id}"),
+                                Err(e) => warn!("approval from phone {phone_id} refused: {}", e.message()),
+                            }
+                        }
                         queue.retain(|m| !matches!(m, PcMsg::Ack { .. }));
                         if let Some(upto) = upto {
                             queue.insert(0, PcMsg::Ack { upto });
                         }
-                        queue.extend(cmds);
                         flush(&mut peer, &mut queue, &mut wr).await?;
                     }
                     other => bail!("unexpected frame {other:?} from hub"),
@@ -310,13 +318,17 @@ fn on_pair_request(state: &AppState, frame: &[u8]) -> Result<Option<Vec<u8>>> {
     Ok(None)
 }
 
-/// Stores a batch and returns (highest hub row id stored, rule commands to send).
-fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<PcMsg>)> {
+/// A node approval a phone asked for: (public key, name, phone id).
+type PhoneApproval = (String, Option<String>, u16);
+
+/// Stores a batch and returns (highest hub row id stored, approvals from
+/// phones to run once the DB lock is released).
+fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<PhoneApproval>)> {
     let mut conn = state.db.lock().unwrap();
     let last_seq = db::hub_last_seq(&conn)?;
     let tx = conn.transaction()?;
     let mut upto = None;
-    let mut cmds = Vec::new();
+    let mut approvals = Vec::new();
     for (seq, msg) in &batch.msgs {
         upto = Some(upto.map_or(*seq, |u: i64| u.max(*seq)));
         match msg {
@@ -324,14 +336,32 @@ fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<P
                 public_key,
                 fingerprint,
                 transport,
+                kind,
                 ts,
             } => state.add_pending(PendingPair {
-                kind: PairKind::Node,
+                kind: match kind {
+                    DeviceKind::Node => PairKind::Node,
+                    DeviceKind::Phone => PairKind::Phone,
+                },
                 public_key: public_key.clone(),
                 fingerprint: fingerprint.clone(),
                 transport: Some(*transport),
                 seen_at: *ts,
             }),
+            HubMsg::ApproveRequested {
+                public_key,
+                name,
+                phone_id,
+                ..
+            } => approvals.push((public_key.clone(), name.clone(), *phone_id)),
+            HubMsg::RecipeReply { req, ok, err } => state.recipe_reply(
+                *req,
+                match (ok, err) {
+                    (_, Some(e)) => Err(e.clone()),
+                    (Some(v), None) => Ok(v.clone()),
+                    (None, None) => Err("empty reply from the hub".into()),
+                },
+            ),
             HubMsg::Heartbeat { backlog, ts } => {
                 let mut hub = state.hub.lock().unwrap();
                 hub.backlog = *backlog;
@@ -342,12 +372,12 @@ fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<P
         if *seq <= last_seq {
             continue; // already stored before a reconnect
         }
-        cmds.extend(db::store_hub_msg(&tx, *seq, msg)?);
+        db::store_hub_msg(&tx, *seq, msg)?;
     }
     tx.execute("UPDATE hubs SET last_seen = ?1", [unix_now()])?;
     tx.commit()?;
     state.hub.lock().unwrap().last_seen = Some(unix_now());
-    Ok((upto, cmds))
+    Ok((upto, approvals))
 }
 
 #[cfg(test)]
@@ -379,12 +409,23 @@ mod tests {
         s
     }
 
-    async fn is_closed(s: &mut TcpStream) -> bool {
+    /// True if the server closes `s` within `wait`. Closing is checked with
+    /// a generous wait (a busy CI runner can be slow to drop a socket), and
+    /// staying open with a short one.
+    async fn closed_within(s: &mut TcpStream, wait: Duration) -> bool {
         let mut b = [0u8; 1];
         matches!(
-            tokio::time::timeout(Duration::from_millis(300), s.read(&mut b)).await,
+            tokio::time::timeout(wait, s.read(&mut b)).await,
             Ok(Ok(0)) | Ok(Err(_))
         )
+    }
+
+    async fn is_closed(s: &mut TcpStream) -> bool {
+        closed_within(s, Duration::from_secs(5)).await
+    }
+
+    async fn stays_open(s: &mut TcpStream) -> bool {
+        !closed_within(s, Duration::from_millis(300)).await
     }
 
     #[tokio::test]
@@ -401,7 +442,7 @@ mod tests {
             is_closed(&mut first).await,
             "oldest unproven connection evicted"
         );
-        assert!(!is_closed(&mut others[MAX_CONNECTIONS - 1]).await);
+        assert!(stays_open(&mut others[MAX_CONNECTIONS - 1]).await);
     }
 
     #[tokio::test]
@@ -436,7 +477,7 @@ mod tests {
             junks.push(junk(addr, 40 + i).await);
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        assert!(!is_closed(&mut hub).await, "verified hub keeps its slot");
+        assert!(stays_open(&mut hub).await, "verified hub keeps its slot");
     }
 
     #[test]

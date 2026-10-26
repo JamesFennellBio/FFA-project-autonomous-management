@@ -29,6 +29,30 @@ pub enum Transport {
     Lora,
 }
 
+/// What is asking to pair with the hub. Phones pair the same way nodes do
+/// (approved in the desktop app) but get ids from their own range and only
+/// ever talk on the phone port.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeviceKind {
+    #[default]
+    Node,
+    Phone,
+}
+
+/// The phone app's link to the hub (see hub-node/src/app.rs).
+pub mod app {
+    use crypto_sharecrate::frame::{HEADER_LEN, TAG_LEN};
+
+    /// UDP port the hub listens on for phones.
+    pub const APP_PORT: u16 = 7301;
+    /// Largest JSON body in one phone <-> hub frame. Keeps every datagram
+    /// under a normal Wi-Fi MTU so it is never fragmented.
+    pub const MAX_APP_PLAINTEXT: usize = 1200;
+    /// Largest phone <-> hub datagram (header + body + tag).
+    pub const MAX_APP_FRAME: usize = HEADER_LEN + MAX_APP_PLAINTEXT + TAG_LEN;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HubMsg {
@@ -62,6 +86,8 @@ pub enum HubMsg {
         public_key: String,
         fingerprint: String,
         transport: Transport,
+        #[serde(default)]
+        kind: DeviceKind,
         ts: i64,
     },
     /// The node finished pairing on its side (it got our PAIR_ACCEPT and sent a HELLO).
@@ -105,15 +131,72 @@ pub enum HubMsg {
         /// Messages stored on the hub that the PC hasn't acknowledged yet.
         backlog: u64,
     },
+    /// A command that started on the hub (a phone or a recipe), so the PC can
+    /// log it. `CommandSent`/`CommandAcked` for it follow as usual.
+    CommandRequested {
+        node_id: u16,
+        channel: u8,
+        value: i32,
+        /// "phone:<id>" or "recipe:<id>"
+        source: String,
+        ts: i64,
+    },
+    /// A recipe's "send alert" block ran.
+    RecipeAlert {
+        recipe_id: u32,
+        name: String,
+        text: String,
+        ts: i64,
+    },
+    /// A paired phone approved a waiting node. The PC assigns the node id and
+    /// answers with `ApprovePair`, exactly as if someone clicked Approve in
+    /// the desktop app. Live only (never stored).
+    ApproveRequested {
+        public_key: String,
+        name: Option<String>,
+        phone_id: u16,
+        ts: i64,
+    },
+    /// Answer to [`PcMsg::Recipe`] with the same `req`: `ok` on success,
+    /// `err` saying why not. Live only (never stored).
+    RecipeReply {
+        req: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ok: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        err: Option<String>,
+    },
+}
+
+/// Recipe requests from the desktop app. The hub stores and runs recipes
+/// (hub-node/src/recipes.rs); these are the same operations the phone app
+/// has, so both apps edit one set of recipes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RecipeOp {
+    /// Every recipe's id, name and enabled flag.
+    List,
+    Get {
+        id: u32,
+    },
+    /// A recipe as JSON; id 0 = new. The hub checks it before saving.
+    Save {
+        recipe: serde_json::Value,
+    },
+    Delete {
+        id: u32,
+    },
+    SetEnabled {
+        id: u32,
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PcMsg {
     /// The PC has stored everything up to and including this hub row id.
-    Ack {
-        upto: i64,
-    },
+    Ack { upto: i64 },
     Command {
         node_id: u16,
         channel: u8,
@@ -123,11 +206,24 @@ pub enum PcMsg {
     /// time the node asks.
     ApprovePair {
         public_key: String,
+        /// The node id, or the phone id when `kind` is `Phone`.
         node_id: u16,
+        #[serde(default)]
+        kind: DeviceKind,
     },
     Unpair {
         node_id: u16,
+        #[serde(default)]
+        kind: DeviceKind,
     },
+    /// Names from the desktop app, so the phone app can show them. Sent when
+    /// the hub connects and after every rename.
+    Labels {
+        nodes: Vec<(u16, String)>,
+        channels: Vec<(u16, u8, String)>,
+    },
+    /// A recipe request; the hub answers with [`HubMsg::RecipeReply`].
+    Recipe { req: u32, op: RecipeOp },
 }
 
 /// One encrypted hub -> PC frame. Each message carries the hub's row id so

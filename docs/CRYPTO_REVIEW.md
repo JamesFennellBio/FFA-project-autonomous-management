@@ -1,188 +1,163 @@
 # Crypto review guide
 
-Everything in this system that touches cryptography is tagged with a
-`// CRYPTO-REVIEW:` comment. This page explains the design so you can check
-it, lists the weaknesses I already know about, and ends with an index of every
-tagged line (regenerate it with `./scripts/crypto-review.sh`).
-
-**Where to start:** almost all the crypto is in one small no_std crate,
-`crypto-sharecrate/src/crypto/` (about 600 lines), and the tests in
-`crypto-sharecrate/tests/protocol.rs` spell out the security properties it's
-supposed to have. The other crates only call into it, plus the RNG and key storage.
+## How to use this
+- Every crypto line tagged `// CRYPTO-REVIEW:`
+- Index of all tags at the bottom; regenerate: `./scripts/crypto-review.sh`
+- Start in `crypto-sharecrate/src/crypto/` (~600 lines, no_std)
+- Security properties as tests: `crypto-sharecrate/tests/protocol.rs`
+- Other crates only call into it (+ RNG, key storage)
 
 ## Primitives
-
-| Purpose | Algorithm | Crate |
-|---|---|---|
-| Long-term identity, signatures | Ed25519 (`verify_strict`) | `ed25519-dalek` 2 |
-| Key agreement | X25519 ECDH, ephemeral on both sides | `x25519-dalek` 2 |
-| Key derivation | HKDF-SHA256 | `hkdf` 0.12, `sha2` 0.10 |
-| Encryption | ChaCha20-Poly1305 (IETF, 96-bit nonce) | `chacha20poly1305` 0.10 |
-| Hub recovery | BIP39 24 words → PBKDF2-SHA512 → HKDF → Ed25519 seed | `bip39` 2 |
-| Node RNG | SHA-256 hash-DRBG seeded from the C3's TRNG | `data-node/src/rng.rs` |
-
-All of these are RustCrypto / dalek crates in pure Rust. Nothing is hand-rolled
-except the protocol framing, the DRBG and the HKDF labels.
+- Identity / signatures: Ed25519 (`verify_strict`), `ed25519-dalek` 2
+- Key agreement: X25519, ephemeral both sides, `x25519-dalek` 2
+- Key derivation: HKDF-SHA256, `hkdf` 0.12, `sha2` 0.10
+- Encryption: ChaCha20-Poly1305 (IETF, 96-bit nonce), `chacha20poly1305` 0.10
+- Hub recovery: BIP39 24 words → PBKDF2-SHA512 → HKDF → Ed25519 seed, `bip39` 2
+- Node RNG: SHA-256 hash-DRBG seeded from the C3 TRNG, `data-node/src/rng.rs`
+- All pure-Rust RustCrypto / dalek crates
+- Hand-rolled: only protocol framing, DRBG, HKDF labels
+- Labels (`FFA-HELLO-v1`, `FFA-HUB`, `FFA-DRBG`…) and flash magic `FFA1` keep the old name on purpose: renaming them changes every derived key, old seed phrases and pairings stop working
 
 ## Who trusts whom
-
-```
-          pairing (TOFU + a person approves in the app)
- ESP node ───────────────────────────────────────────────▶ Pi hub ──────────▶ PC daemon ──▶ Electron app
- Ed25519 key A        pins hub key H          pins A      Ed25519 key H  pins P  key P      127.0.0.1 + bearer token
-```
-
-- A **node** pins the hub's Ed25519 key during pairing. The **hub** pins the
-  node's key after you click Approve.
-- The **hub** pins the PC's key and the **PC** pins the hub's key the same way
-  (the hub plays the "node" role toward the PC).
-- The **app** talks to the daemon over loopback HTTP with a 256-bit bearer
-  token. The token stays in the Electron main process and the page never sees it.
+- Node (key A) pins hub key H at pairing; hub pins A after Approve
+- Hub pins PC key P; PC pins H (hub plays the "node" role toward the PC)
+- Phone (key F) pins H; hub pins F after Approve on the desktop; phone never talks to the PC
+- Desktop app → daemon: loopback HTTP, 256-bit bearer token
+- Token stays in the Electron main process, page never sees it
 
 ## Pairing (`crypto/pairing.rs`)
-
-1. The node holds BOOT for 3 s and sends `PAIR_REQUEST = 0x08 | pubA | Sig_A("FFA-PAIR-REQ-v1" ‖ 0x08 ‖ pubA)`
-   (proof that it holds the key).
-2. The hub forwards the request to the PC, and the app shows its **fingerprint** (first 64 bits of SHA-256(pubA)).
-3. You compare the fingerprint with the node's serial log and click Approve.
-4. On the node's next request, the hub sends `PAIR_ACCEPT = 0x09 | node_id | pubH | Sig_H("FFA-PAIR-ACC-v1" ‖ pubA ‖ 0x09 ‖ node_id ‖ pubH)`.
-   Because the signature covers pubA, an accept made for another device fails.
-5. **Pinned peer keys (scan findings 03/17/12).** Nodes built with
-   `FFA_HUB_KEY=<hub public key>` refuse any PAIR_ACCEPT not signed by that
-   key (`NodeCore::with_expected_peer`, error `WrongPeer`), which closes the
-   trust-on-first-use race. The hub *requires* `pc_public_key` in hub.toml
-   and only pairs with that PC. A saved pairing for a different key is
-   dropped, and the device pairs again with the pinned peer.
+- Node holds BOOT 3 s → `PAIR_REQUEST = 0x08 | pubA | Sig_A("FFA-PAIR-REQ-v1" ‖ 0x08 ‖ pubA)` (proves key ownership)
+- Hub forwards to PC; app shows fingerprint = first 64 bits of SHA-256(pubA)
+- Person compares with node serial log → Approve
+- Next request: `PAIR_ACCEPT = 0x09 | node_id | pubH | Sig_H("FFA-PAIR-ACC-v1" ‖ pubA ‖ 0x09 ‖ node_id ‖ pubH)`
+- Signature covers pubA → accept for another device fails
+- Pinned keys (findings 03/17/12):
+  - `FARMLAB_HUB_KEY` on nodes → only that hub (`NodeCore::with_expected_peer`, `WrongPeer`)
+  - closes the trust-on-first-use race
+  - hub requires `pc_public_key` in hub.toml
+  - saved pairing for a different key → dropped, re-pair with the pinned peer
 
 ## Session handshake (`crypto/handshake.rs`)
+- `HELLO I→R: 0x03 | id | eI(32) | nI(16) | Sig_I("FFA-HELLO-v1" ‖ bytes 0..51)`
+- `HELLO-ACK R→I: 0x04 | id | epoch(4) | eR(32) | nR(16) | Sig_R("FFA-HELLO-ACK-v1" ‖ HELLO[0..51] ‖ ACK[0..55])`
+- `ss = X25519(eI, eR)`, rejected if not contributory
+- `salt = SHA-256("FFA-TRANSCRIPT-v1" ‖ HELLO[0..51] ‖ ACK[0..55])`
+- `k_IR = HKDF(ss, salt, "FFA-v1 key init->resp")`
+- `k_RI = HKDF(ss, salt, "FFA-v1 key resp->init")`
+- SIGMA-like signed DH (close to TLS 1.3 signature-authenticated ECDHE)
+- Mutual auth: both sign with pinned identity keys
+- Forward secrecy: ephemeral `StaticSecret`s zeroized on drop
+- Binding: Sig_R covers the whole HELLO → ACK can't be moved to another HELLO
+- Key confirmation: responder keeps session pending until a frame decrypts (`crypto/responder.rs`)
+  - replayed / forged HELLO can't knock out the live session
 
-```
-HELLO      I→R  0x03 | id | eI(32) | nI(16) | Sig_I("FFA-HELLO-v1" ‖ bytes 0..51)
-HELLO-ACK  R→I  0x04 | id | epoch(4) | eR(32) | nR(16) | Sig_R("FFA-HELLO-ACK-v1" ‖ HELLO[0..51] ‖ ACK[0..55])
-ss   = X25519(eI, eR)          (rejected if not contributory)
-salt = SHA-256("FFA-TRANSCRIPT-v1" ‖ HELLO[0..51] ‖ ACK[0..55])
-k_IR = HKDF(ss, salt, "FFA-v1 key init->resp")
-k_RI = HKDF(ss, salt, "FFA-v1 key resp->init")
-```
-
-This is a SIGMA-like signed Diffie-Hellman exchange (close to TLS 1.3's
-signature-authenticated ECDHE):
-
-- **Mutual authentication:** each side signs with its pinned identity key.
-- **Forward secrecy:** ephemeral secrets are `StaticSecret`s that are zeroized
-  on drop right after use.
-- **Binding:** Sig_R covers the whole HELLO, so an ACK can't be replayed onto
-  a different HELLO.
-- **Key confirmation:** the responder keeps the new session *pending* until
-  a frame under it decrypts (`crypto/responder.rs`), so a replayed or forged
-  HELLO can't knock out the live session.
-
-## Rekeying: every 10 transmissions or 1 hour (`crypto/session.rs`)
-
-- `MAX_MSGS = 10`: counters run 0..=9 in each direction, and frame 10 is refused on both send and receive.
-- `MAX_AGE_SECS = 3600`: senders stop at 1 h. Receivers allow 60 s of grace for frames still in flight.
-- `needs_rekey()` counts **both** directions, so the initiator starts a fresh
-  handshake once the responder has used up its sends.
-- Ages use a monotonic clock (`embassy_time::Instant` on the node,
-  `Instant` on the hub and PC), so an NTP change can't make a session look younger.
+## Rekeying: 10 messages or 1 hour (`crypto/session.rs`)
+- `MAX_MSGS = 10`: counters 0..=9 per direction, 10th refused on send and receive
+- `MAX_AGE_SECS = 3600`: senders stop at 1 h; receivers allow 60 s grace
+- `needs_rekey()` counts both directions → initiator rekeys when the responder runs out
+- Monotonic clocks (embassy `Instant` on node, `Instant` on hub / PC) → NTP can't make a session look younger
 
 ## Frames (`frame.rs`)
+- `type(1) | node_id(2) | epoch(4) | counter(4) | dir(1) | ciphertext | tag(16)`
+- First 12 bytes = AAD (authenticated, not encrypted)
+- `nonce = dir(1) | epoch(4) | counter(4) | 000000`
+- Radio frames always 64 bytes (plaintext padded to 36) → all look the same on air
+- Replay: counter must be > last verified; gaps allowed (lost LoRa packets)
+- Replay state updates only after the tag verifies
 
-```
-type(1) | node_id(2) | epoch(4) | counter(4) | dir(1) | ciphertext | tag(16)
-\______________ AAD (authenticated, not encrypted) ________/
-nonce = dir(1) | epoch(4) | counter(4) | 000000
-```
+## Phone app (`mobile/core`, `hub-node/src/hub/app.rs`)
+- Phone side in Rust (uniffi from React Native), uses `NodeCore` from crypto-sharecrate
+- Same signed PAIR_REQUEST, signed X25519 HELLO, HKDF, 10 msg / 1 h rekey
+- JavaScript only sees JSON
+- Frames: one `FrameType::Uplink` per request / reply (same sealing as hub→PC)
+  - max 1200 bytes JSON → no IP fragmentation
+  - one request → exactly one reply
+  - phone counts the hub's replies → rekeys before the hub runs out
+- Separate trust lists: `phones` / `approved_phones` in `paired.json`, phone port only
+  - node key can't open a session on the phone port, phone key can't on the node port
+- Paired phone can:
+  - read values, history, alerts
+  - set outputs (hub checks the channel was announced as an output)
+  - manage recipes
+  - approve nodes currently asking to pair (PC assigns id; `approve_key(.., nodes_only = true)` refuses hubs / phones)
+- Paired phone can't: add phones, unpair anything, change hub settings
+- Recipes = data, not code:
+  - fixed condition / action types, `deny_unknown_fields`
+  - limits: size, depth 4, 16 conditions, 8 actions per list
+  - every target a paired node, every "set" an announced output
+- Without a pinned hub key → trust-on-first-use (Settings has optional hub key → `WrongPeer` otherwise)
+- Phone seed: OS RNG in Rust → JS once → `expo-secure-store`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Keychain / Keystore, not backed up)
+  - sits in JS memory while the app runs
+- Rate limits: shares hub's 50/s signature budget; 5 verified HELLOs / 10 s per phone; requests need a valid session
 
-Radio frames are always 64 bytes (the plaintext is padded to 36), so every
-frame looks the same size on air. Replay protection: the counter must be
-strictly greater than the last frame that verified, and gaps are allowed for
-lost LoRa packets. Replay state only changes **after** the tag verifies.
+## Known weaknesses
+- Node pairing without `FARMLAB_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
+- Keys at rest not encrypted:
+  - node seed in plain flash at 0x9000
+  - hub `identity.key`, PC `identity.key` / `api-token` = 0600 files
+  - fix for the node: ESP32 flash encryption + secure boot (irreversible eFuse)
+- Custom DRBG on the node (`data-node/src/rng.rs`): simple SHA-256, not NIST HMAC-DRBG; TRNG (ADC noise) seed at boot
+- Metadata in the clear (authenticated): frame type, node id, epoch, counter
+- Radio jamming can't be prevented; limited now:
+  - 50 Ed25519 checks/s on the hub, 20 on the PC hub port
+  - 5 verified HELLOs / 10 s per node (forged ones don't count)
+  - 1 forwarded pairing request/s; never stored in the hub DB
+  - rate-limit tables capped
+  - replayed HELLO rejected by nonce; 4 pending slots
+  - many recorded HELLOs replayed fast can still delay sessions (≈ jamming)
+- Hub→PC link is this custom protocol, not TLS:
+  - 4 connections max on the PC port
+  - unproven connection: 10 s per frame, 30 s total, evicted first
+  - verified hub never evicted
+  - batches over 116 messages close the connection
+- Timestamps from the hub clock (no RTC on Pi 3B); backward clock step can make the PC skip readings as duplicates (finding 19)
+- Wi-Fi password compiled into node firmware
+- No node key rotation (factory reset: hold BOOT 10 s + re-pair)
+- No revocation broadcast to nodes; node keeps hub key until BOOT held 10 s
+- Lost phone works until unpaired on the desktop (Pairing → Paired phones)
+  - "Forget this hub" on the phone only removes the phone's side
 
-## Known weaknesses / things to look at
+## Fixed after the Oct 24 2026 scan
+- 01 failsafe only re-armed by new session → any authenticated frame re-arms (`data-node/src/main.rs::contact`)
+- 02/08 pairing spam filled hub DB/RAM → live-only, never stored, 1/s, key table capped at 1024
+- 03/17 node TOFU race → optional `FARMLAB_HUB_KEY` pin
+- 04 unlimited TCP connections → 4-connection cap, first-frame + idle timeouts
+- 09 HELLO / PAIR CPU flood → per-node + global signature budgets
+- 10/18 "delivered" without proof → node sends encrypted `Ack`; queued→sent→acked
+- 11/15 init said nothing stored → output + docs corrected
+- 12 hub re-pairs with any PC → `pc_public_key` required
+- 14 any TCP disconnect cleared hub link → only the registered connection can
+- 16/22/25/31 node id reuse / collisions → ids never reused, hub won't re-point an id (PC rules were removed; automation is hub recipes)
+- 24 deleted active rule left output on → off command on delete
+- 27 `restore` overwrote identity → needs `--force`
+- 29 replayed HELLO blocked sessions → nonce cache + 4 pending slots
+- 30 silent command drop → `CommandDropped` alert + status `dropped`
 
-1. **Node pairing without `FFA_HUB_KEY` is still trust-on-first-use.** If you
-   build a node without the hub key, whoever answers first during the 60 s
-   pairing window gets pinned. With the key set, this is closed. The hub side
-   always needs a person to approve.
-2. **Keys at rest aren't encrypted.** The node seed sits in plain flash at
-   0x9000 (anyone holding the board can read it). The hub's `identity.key` and
-   the PC's `identity.key` / `api-token` are 0600 files. `hub-node init` now
-   says plainly that the derived key *is* saved. Fixing the node needs ESP32
-   flash encryption plus secure boot (an eFuse change you can't undo).
-3. **Custom DRBG on the node** (`data-node/src/rng.rs`). It's a simple
-   SHA-256 construction, not NIST HMAC-DRBG. Its seed comes from the TRNG
-   (ADC noise) at boot.
-4. **Metadata is in the clear:** frame type, node id, epoch and counter (all
-   authenticated).
-5. **Radio denial of service can't be prevented** (jamming). What is limited
-   now: at most 50 Ed25519 checks per second on the hub (20 on the PC's hub
-   port); per node, at most 5 *verified* HELLOs per 10 s (forged ones can't
-   use up a node's allowance); at most 1 forwarded pairing request per second; pairing
-   requests are never stored in the hub DB; and the rate-limit tables are
-   capped. A replayed HELLO is rejected by nonce, and a replay can't push out
-   the genuine pending session (4 slots). An attacker with many recorded
-   HELLOs replaying fast can still delay new sessions, which is no worse than
-   jamming.
-6. **The hub→PC link is this custom protocol, not TLS.** The PC port allows
-   4 connections. One that hasn't proven it's the paired or approved hub gets
-   at most 10 s per frame and 30 s in total, and is the first evicted when a
-   new connection needs the slot. The verified hub is never evicted. Batches
-   over 116 messages close the connection.
-7. **Timestamps come from the hub's clock** (no RTC on the Pi 3B). A clock
-   that steps backwards after a power cut can make the PC skip a few readings
-   as duplicates (scan finding 19).
-8. **The Wi-Fi password is compiled into the node firmware.**
-9. **There's no node key rotation.** Rotating means a factory reset (hold
-   BOOT 10 s) plus pairing again.
-10. **There's no revocation broadcast to the node.** Unpairing removes the key on the hub and
-    PC (and now requires the hub to be online, so they can't get out of
-    sync), but the node keeps the hub's key until someone holds its button for 10 s.
+## Fixed after the second scan (f1122480, 0 critical / 0 high)
+- Forged HELLO-ACK cancels handshake (medium) → `Initiator::finish(&self)`; bad reply leaves it pending, timeout not reset
+- Forged HELLOs use up node allowance (medium) → only verified HELLOs count
+- Junk TCP connections hold all hub-port slots (medium) → only pinned / approved hub is proven; unproven max 30 s, evicted oldest-first
+- Editing an active rule leaves output latched (medium) → off command sent before edit
+- Unpair leaves waiting approval (low) → cleared on unpair
+- No batch size cap (low) → `MAX_BATCH_MSGS` both ends; PC splits big queues
+- Unbounded signature checks on PC hub port (low) → 20/s
 
-### Fixed after the Oct 24 2026 security scan
-
-| Finding | Fix |
-|---|---|
-| 01 failsafe only re-armed by a new session | any authenticated frame re-arms it (`data-node/src/main.rs::contact`) |
-| 02/08 pairing-request spam filled hub DB/RAM | live-only, never stored; global 1/s; key table capped at 1024 |
-| 03/17 node TOFU race | optional `FFA_HUB_KEY` pin |
-| 04 unlimited TCP connections | 4-connection cap, first-frame and idle timeouts |
-| 09 HELLO/PAIR CPU flood | per-node and global signature-check budgets |
-| 10/18 "delivered" without proof | node sends an encrypted `Ack`; status queued→sent→acked |
-| 11/15 init said nothing is stored | output and docs corrected |
-| 12 hub re-pairs with any PC | `pc_public_key` required in hub.toml |
-| 14 any TCP disconnect cleared hub link | only the registered connection can clear it |
-| 16/22/25/31 node id reuse / collisions | ids never reused; rules deleted with the node; hub refuses to re-point an id |
-| 24 deleted active rule left output on | off command sent on delete |
-| 27 `restore` overwrote identity | needs `--force` |
-| 29 replayed HELLO blocked new sessions | nonce cache + 4 pending slots |
-| 30 silent command drop | `CommandDropped` → alert + status `dropped` |
-
-### Fixed after the second scan (scan f1122480, 0 critical / 0 high)
-
-| Finding | Fix |
-|---|---|
-| Forged HELLO-ACK cancels or delays the node's handshake (medium) | `Initiator::finish` takes `&self`; a reply that fails verification leaves the handshake pending, and the timeout isn't reset |
-| Forged HELLOs use up a node's handshake allowance (medium) | only HELLOs that verify count toward the per-node window |
-| Junk TCP connections hold every hub-port slot (medium) | only the pinned/approved hub counts as proven; unproven connections live at most 30 s and are evicted oldest-first |
-| Editing an active rule leaves its output latched (medium) | its off command is sent before the edit, same as delete |
-| Unpair leaves a waiting approval (low) | unpair also clears approvals for that id |
-| No cap on batch size (low) | `MAX_BATCH_MSGS` enforced on both ends; the PC splits big queues |
-| Unbounded signature checks on the PC hub port (low) | 20 per second |
-
-## Tests that pin down these properties
-
-`cargo test -p crypto-sharecrate` runs these:
-`rekey_after_ten_messages`, `rekey_after_one_hour`, `hub_rejects_expired_session`,
-`tampered_ciphertext_header_and_tag_rejected`, `replay_rejected`,
-`hello_signed_by_wrong_key_rejected`, `ack_from_wrong_hub_rejected`,
-`replayed_hello_rejected_and_live_session_survives`, `old_replay_cannot_evict_genuine_pending_session`,
-`pinned_hub_key_rejects_other_hubs`, `saved_pairing_with_wrong_key_is_dropped_when_pinned`,
-`pair_accept_for_other_device_rejected`, `forged_pair_request_rejected`.
-Also `forged_hello_ack_does_not_cancel_handshake`.
-`cargo test -p hub-node` covers the hub-side limits (`hello_flood_is_rate_limited`,
-`forged_hellos_do_not_use_up_a_nodes_allowance`, `unpair_clears_waiting_approval`,
-`pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`).
+## Tests for these properties
+- `cargo test -p crypto-sharecrate`:
+  - `rekey_after_ten_messages`, `rekey_after_one_hour`, `hub_rejects_expired_session`
+  - `tampered_ciphertext_header_and_tag_rejected`, `replay_rejected`
+  - `hello_signed_by_wrong_key_rejected`, `ack_from_wrong_hub_rejected`
+  - `replayed_hello_rejected_and_live_session_survives`, `old_replay_cannot_evict_genuine_pending_session`
+  - `pinned_hub_key_rejects_other_hubs`, `saved_pairing_with_wrong_key_is_dropped_when_pinned`
+  - `pair_accept_for_other_device_rejected`, `forged_pair_request_rejected`
+  - `forged_hello_ack_does_not_cancel_handshake`
+- `cargo test -p hub-node`:
+  - `hello_flood_is_rate_limited`, `forged_hellos_do_not_use_up_a_nodes_allowance`
+  - `unpair_clears_waiting_approval`, `pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`
+  - phone port: `node_frames_on_the_phone_port_and_unknown_phones_are_dropped`, `phone_approves_only_nodes_that_are_asking`, `many_requests_rekey_and_keep_working`, `recipes_with_bad_targets_are_refused`
+  - `recipes::tests::rejects_bad_shapes`
+- `cargo test -p farmlab-mobile-core`: `a_pinned_hub_key_refuses_any_other_hub`, `pairs_then_keeps_working_across_rekeys`, `a_lost_reply_is_retried`
+- `cargo test -p pc-daemon`: `phones_pair_with_their_own_ids_and_can_only_approve_nodes`
 
 ## Every CRYPTO-REVIEW location
 
@@ -239,44 +214,56 @@ Also `forged_hello_ack_does_not_cancel_handshake`.
 | `data-node/src/main.rs` | 261 | ephemeral key + nonce |
 | `data-node/src/main.rs` | 355 | true-random 256-bit seed from the RNG with ADC noise as |
 | `data-node/src/main.rs` | 371 | first boot, so make this node's long-term identity. |
-| `data-node/src/main.rs` | 382 | with FFA_HUB_KEY set at build time, the node only pairs |
+| `data-node/src/main.rs` | 382 | with FARMLAB_HUB_KEY set at build time, the node only pairs |
 | `data-node/src/rng.rs` | 1 | random numbers for keys and handshakes on the ESP32-C3. |
 | `data-node/src/storage.rs` | 10 | the Ed25519 seed is stored *unencrypted* in flash. Anyone |
 | `data-node/src/storage.rs` | 25 | long-term Ed25519 secret seed. |
 | `database/schema.sql` | 10 | pinned Ed25519 key (hex) |
 | `database/schema.sql` | 20 | pinned Ed25519 key (hex) |
+| `database/schema.sql` | 32 | Ed25519 key (hex) the hub pins |
 | `hub-node/Cargo.toml` | 26 | seed phrase (BIP39) and key derivation for the hub identity. |
-| `hub-node/src/config.rs` | 18 | the PC daemon's public key (64 hex chars), shown in the |
-| `hub-node/src/hub.rs` | 51 | pinned Ed25519 key from pairing. |
-| `hub-node/src/hub.rs` | 71 | keys a person approved in the app, waiting for the node's next PAIR_REQUEST. |
-| `hub-node/src/hub.rs` | 91 | randomness for one handshake: 48 bytes (ephemeral key + |
-| `hub-node/src/hub.rs` | 233 | verifies the node's signature with its pinned key; |
-| `hub-node/src/hub.rs` | 275 | hub side of node pairing; see crypto::pairing for the trust model. |
-| `hub-node/src/hub.rs` | 336 | never silently re-point a node id at a new |
-| `hub-node/src/main.rs` | 75 | the phrase is printed once and never saved. The |
+| `hub-node/src/config.rs` | 21 | the PC daemon's public key (64 hex chars), shown in the |
+| `hub-node/src/hub.rs` | 64 | pinned Ed25519 key from pairing. |
+| `hub-node/src/hub.rs` | 160 | keys a person approved in the app, waiting for the |
+| `hub-node/src/hub.rs` | 186 | randomness for one handshake: 48 bytes (ephemeral key + |
+| `hub-node/src/hub.rs` | 393 | HELLO from a paired node or phone. The signature is |
+| `hub-node/src/hub.rs` | 447 | hub side of pairing for nodes and phones; see |
+| `hub-node/src/hub.rs` | 661 | never silently re-point an id at a new |
+| `hub-node/src/hub/app.rs` | 168 | same AEAD + replay checks as the PC uplink; |
+| `hub-node/src/hub/app.rs` | 318 | a phone can only approve a node that is |
+| `hub-node/src/main.rs` | 78 | the phrase is printed once and never saved. The |
 | `hub-node/src/pc_link.rs` | 29 | pinned PC daemon Ed25519 key. |
 | `hub-node/src/pc_link.rs` | 53 | `pc_key` is the PC daemon's public key from hub.toml. The |
 | `hub-node/src/pc_link.rs` | 82 | randomness for a handshake, from the OS RNG. |
 | `hub-node/src/seed.rs` | 1 | hub identity from a 24-word BIP39 seed phrase. |
+| `mobile/app/src/hub/context.tsx` | 9 | "seed" is this phone's long-term Ed25519 secret. |
+| `mobile/app/src/hub/native.ts` | 4 | all pairing, handshakes and encryption happen inside the |
+| `mobile/core/src/lib.rs` | 64 | the hub's Ed25519 key (hex), pinned from now on. |
+| `mobile/core/src/lib.rs` | 76 | 32 bytes from the phone's OS CSPRNG. The seed passes |
+| `mobile/core/src/lib.rs` | 125 | `expected_hub_key` (hex), if given, is the only hub |
+| `mobile/core/src/lib.rs` | 238 | sealed under the current session; this counts |
+| `mobile/core/src/lib.rs` | 273 | runs the signed X25519 handshake when there's no |
+| `mobile/core/src/lib.rs` | 332 | AEAD + replay check. Anything that fails is dropped. |
 | `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
-| `node-sim/src/main.rs` | 128 | pinned hub key, same as FFA_HUB_KEY on the ESP32. |
+| `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
 | `node-sim/src/main.rs` | 162 | handshake randomness |
-| `pc-daemon/src/api/mod.rs` | 106 | the human approval step of pairing. A device's key is only |
+| `pc-daemon/src/api/mod.rs` | 123 | the human approval step of pairing. A device's key is only |
+| `pc-daemon/src/api/mod.rs` | 133 | only keys that are in the pending list (they sent a signed |
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
-| `pc-daemon/src/db.rs` | 47 | the pinned hub key, if a hub is paired. |
-| `pc-daemon/src/hub_link.rs` | 144 | 48 random bytes for one handshake (ephemeral key + nonce) |
-| `pc-daemon/src/hub_link.rs` | 208 | verifies the hub's signature with the pinned key. |
-| `pc-daemon/src/hub_link.rs` | 280 | hub pairing. A hub is only pinned after a person approved |
-| `pc-daemon/src/main.rs` | 62 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
-| `pc-daemon/src/state.rs` | 44 | the PC daemon's long-term signing key. |
-| `pc-daemon/src/state.rs` | 49 | hub key a person approved in the app; it's pinned once |
-| `uplink/src/lib.rs` | 165 | seal a JSON value as an Uplink frame under the session. |
-| `uplink/src/lib.rs` | 176 | open an Uplink frame. `open` is either `Session::open` or |
-| `uplink/src/lib.rs` | 223 | used for the PC daemon's identity seed. The OS RNG fills |
-| `uplink/src/lib.rs` | 256 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
+| `pc-daemon/src/db.rs` | 46 | the pinned hub key, if a hub is paired. |
+| `pc-daemon/src/hub_link.rs` | 145 | 48 random bytes for one handshake (ephemeral key + nonce) |
+| `pc-daemon/src/hub_link.rs` | 209 | verifies the hub's signature with the pinned key. |
+| `pc-daemon/src/hub_link.rs` | 288 | hub pairing. A hub is only pinned after a person approved |
+| `pc-daemon/src/main.rs` | 61 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
+| `pc-daemon/src/state.rs` | 49 | the PC daemon's long-term signing key. |
+| `pc-daemon/src/state.rs` | 54 | hub key a person approved in the app; it's pinned once |
+| `uplink/src/lib.rs` | 261 | seal a JSON value as an Uplink frame under the session. |
+| `uplink/src/lib.rs` | 272 | open an Uplink frame. `open` is either `Session::open` or |
+| `uplink/src/lib.rs` | 319 | used for the PC daemon's identity seed. The OS RNG fills |
+| `uplink/src/lib.rs` | 352 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
-_86 tagged locations._
+_98 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

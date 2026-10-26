@@ -1,8 +1,8 @@
 {
-  "name": "ffa-farm-lab",
-  "productName": "FFA Farm & Lab",
+  "name": "autonomous-farm-lab",
+  "productName": "Autonomous Farm & Lab",
   "version": "0.1.0",
-  "description": "Desktop app for the FFA autonomous farm and lab management system",
+  "description": "Desktop app for the autonomous farm and lab management system",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "blockly": "13.4.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "2.13.3"
@@ -32,10 +33,25 @@
     "wait-on": "8.0.1"
   },
   "build": {
-    "appId": "org.ffa.farmlab",
-    "files": ["dist/**", "dist-electron/**"],
-    "linux": { "target": ["AppImage"] },
-    "win": { "target": ["nsis"] },
-    "mac": { "target": ["dmg"] }
+    "appId": "org.farmlab.desktop",
+    "files": [
+      "dist/**",
+      "dist-electron/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    }
   }
 }

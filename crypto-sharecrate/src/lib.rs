@@ -1,4 +1,4 @@
-//! Shared protocol + crypto for the FFA autonomous farm/lab management system.
+//! Shared protocol + crypto for the autonomous farm/lab management system.
 //!
 //! Used by every Rust part of the system:
 //! - `data-node` (ESP32-C3, no_std)  -> uses [`node::NodeCore`]

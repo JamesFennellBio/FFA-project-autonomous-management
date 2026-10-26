@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, NodeInfo, PendingPair, Reading, Rule, RuleInput, Status } from "./types";
+import type { Alert, NodeInfo, PendingPair, Phone, Reading, Recipe, RecipeInput, RecipeSummary, Status } from "./types";
 
 type RawResponse = { ok: boolean; status: number; data: unknown };
 
 declare global {
   interface Window {
-    ffa?: { api: (method: string, path: string, body?: unknown) => Promise<RawResponse> };
+    farmlab?: { api: (method: string, path: string, body?: unknown) => Promise<RawResponse> };
   }
 }
 
@@ -16,8 +16,8 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (!window.ffa) throw new ApiError(0, "Run this inside the Electron app (npm run dev), not a plain browser.");
-  const r = await window.ffa.api(method, path, body);
+  if (!window.farmlab) throw new ApiError(0, "Run this inside the Electron app (npm run dev), not a plain browser.");
+  const r = await window.farmlab.api(method, path, body);
   if (!r.ok) {
     const msg = (r.data as { error?: string } | null)?.error ?? `HTTP ${r.status}`;
     throw new ApiError(r.status, msg);
@@ -37,12 +37,17 @@ export const api = {
   pending: () => call<PendingPair[]>("GET", "/api/pairing/requests"),
   approve: (key: string, name?: string) => call("POST", `/api/pairing/requests/${key}/approve`, { name }),
   reject: (key: string) => call("POST", `/api/pairing/requests/${key}/reject`),
+  phones: () => call<Phone[]>("GET", "/api/phones"),
+  unpairPhone: (id: number) => call("DELETE", `/api/phones/${id}`),
   alerts: (unacked = false) => call<Alert[]>("GET", `/api/alerts?unacked=${unacked}`),
   ackAlert: (id: number) => call("POST", `/api/alerts/${id}/ack`),
-  rules: () => call<Rule[]>("GET", "/api/rules"),
-  createRule: (r: RuleInput) => call("POST", "/api/rules", r),
-  updateRule: (id: number, r: RuleInput) => call("PUT", `/api/rules/${id}`, r),
-  deleteRule: (id: number) => call("DELETE", `/api/rules/${id}`),
+  // Passed on to the hub, which stores and runs them.
+  recipes: () => call<{ recipes: RecipeSummary[]; max_recipes: number }>("GET", "/api/recipes"),
+  recipe: (id: number) => call<{ recipe: Recipe }>("GET", `/api/recipes/${id}`),
+  createRecipe: (r: RecipeInput) => call<{ id: number }>("POST", "/api/recipes", r),
+  updateRecipe: (id: number, r: RecipeInput) => call<{ id: number }>("PUT", `/api/recipes/${id}`, r),
+  deleteRecipe: (id: number) => call("DELETE", `/api/recipes/${id}`),
+  setRecipeEnabled: (id: number, enabled: boolean) => call("POST", `/api/recipes/${id}/enabled`, { enabled }),
 };
 
 /** Polls `fn` every `ms`. Returns the latest data, the latest error and a manual refresh. */
