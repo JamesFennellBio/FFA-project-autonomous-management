@@ -155,12 +155,19 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 - **No downgrade:** v2 frames use type bytes 0x10–0x13. The v1 parsers reject them and the v2 parsers reject v1 frames.
 - **Libraries:** RustCrypto `ml-dsa` 0.1.1 and `ml-kem` 0.3.3, pinned exactly, `no_std`, with the `zeroize` feature on. `hmac` 0.12. All are optional, behind `pq`, so the firmware never builds them.
 
-## Known weaknesses
+## v2 app shell (`app/src-tauri`)
+- Desktop: `daemon_api` reads the daemon's API token in Rust and adds it; the WASM page never sees it (same rule as Electron's preload). Only `/api/...` paths and GET / POST / PATCH / PUT / DELETE go through; the URL is fixed to `127.0.0.1:7401` (env override for testing only)
+- Phone: `hub_request` sends the page's JSON through `farmlab-mobile-core`; all pairing, handshakes and sealing happen in Rust
+  - QR pairing: the client is made from the QR's hub address and KeyId before anything is sent (`HubClient::pair_with_qr` refuses any other client)
+- CSP: `default-src 'self'`, scripts only from the app (plus `wasm-unsafe-eval`), no remote connections; Blockly and fonts are vendored, nothing loads from the network
+- App commands take only data (JSON); none run code or open files the page names
+
 - Anyone who sees an open phone QR code (over a shoulder, a screenshot) can pair one phone with it within 5 minutes; the desktop shows the new phone, and it can be unpaired there
 - The hub pairing code is shown in the Pi's terminal; whoever reads it within its 10 minutes can pair a PC (`pc_key_id` pin prevents that)
 - The QR token crosses the PC → hub uplink (encrypted) and is held in hub memory in the clear until used or expired
 - Phone port (TCP 7302) closes the oldest connection when 16 are open, so a device on the LAN can keep evicting real phones (denial of service only: no keys or data exposed; the phone reconnects on its next request)
 - Node pairing without `FARMLAB_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
+- v2 phone app keeps its seed and pinned hub key in `phone.json` (0600) in the app's private data folder, not yet in the iOS Keychain / Android Keystore as planned; the OS app sandbox keeps other apps out, but a rooted / jailbroken phone or an unencrypted backup could read it
 - Keys at rest not encrypted:
   - node seed in plain flash at 0x9000
   - hub `identity.key`, PC `identity.key` / `api-token` = 0600 files

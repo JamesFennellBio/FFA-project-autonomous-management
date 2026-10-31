@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-mode="farm" data-theme="dark" data-platform="desktop">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Farm &amp; Lab</title>
+    <link data-trunk rel="css" href="style/tokens.css" />
+    <link data-trunk rel="css" href="style/app.css" />
+    <link data-trunk rel="copy-dir" href="vendor" />
+    <!-- Blockly (Apache-2.0), vendored: the app never loads code from the network. -->
+    <script src="vendor/blockly/blockly_compressed.js"></script>
+    <script src="vendor/blockly/msg-en.js"></script>
+    <script src="vendor/blockly-shim.js"></script>
+    <link data-trunk rel="rust" data-wasm-opt="z" data-bin="farmlab-ui" />
+  </head>
+  <body></body>
+</html>

@@ -76,8 +76,8 @@
 - Firewall: allow TCP 7400 from the Pi (API on 7401 stays localhost-only)
 - Pi firewall (if any): allow TCP 7302 (phones) and, while pairing, TCP 7402
 - Run at login (Linux): `deploy/farmlab-daemon.service`
-- App needs Node.js 20+: `cd frontend && npm install && npm run dev`
-- Installer (AppImage / .exe / .dmg): `cd frontend && npm run dist`
+- App (v2): `cd app/src-tauri && cargo tauri build` → installer in `target/release/bundle/` (setup: `app/README.md`)
+- Old Electron app (until v2 replaces it): Node.js 20+, `cd frontend && npm install && npm run dev`
 
 ## Pairing
 - Only step where a person decides trust
@@ -111,11 +111,23 @@
   - id never reused; recipes that use it stop working (edit or delete them)
 - Unpair a phone: Pairing → Paired phones → Unpair (hub must be online)
 
+## First start (v2 app)
+- Setup asks, one screen each (all changeable later in Settings):
+  - Mode: Lab (blue), Farm (green) or Home (orange); changes colors and words
+  - Look: Standard, or Boomer Mode (big text and buttons, plain words, no animations, rules as a sentence)
+  - Theme: light, dark or match the system
+  - Performance: Lite (under 3 GB of memory) or Normal (under 6 GB), plus a processor limit slider; shows this computer's memory
+  - Link the hub: the code from `hub-node pair` (desktop) or the QR code from the desktop (phone)
+- Sunlight (Settings): black on white for bright sun; on by default for Farm on the phone
+- Limits: Linux and Windows enforce them (Settings shows "Enforced by the system"); elsewhere the app holds back by itself
+
 ## Using the desktop app
-- Dashboard: live values, On/Off for outputs; nodes report every 10 s
+- ⌘K / Ctrl+K: search and jump; `G` then a letter jumps to a page; `C` starts a new recipe
+- Overview: live values with sparklines, outputs (switching one shows Undo), recent alerts; nodes report every 10 s
 - History: chart per channel, 1 h / 24 h / 7 d / 30 d
-- Automation: Blockly recipes, the same ones as the phone app
-  - New recipe → drag blocks into when / do / otherwise → Save to hub
+- Automation: recipes, the same ones as the phone app
+  - Simple: "When [sensor] is above [30] °C, turn [Fans] on", optionally switch it back and send an alert
+  - Blocks: drag blocks into when / do / otherwise (and / or / not, several actions) → Save to hub
   - stored and run on the hub; the PC only passes them on (hub must be connected to edit)
   - On/Off switch per recipe
 - Alerts: sensor faults, recipe alerts
