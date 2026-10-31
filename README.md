@@ -20,7 +20,7 @@
 - HKDF-SHA256 → separate key per direction
 - ChaCha20-Poly1305
 - New keys every 10 messages or 1 hour
-- Pairing: button press + approval in the desktop app
+- Pairing: hub ↔ PC with a one-time code (SPAKE2), phones with a one-time QR code, nodes with a button press + approval in the desktop app
 - Hub recovery: 24-word BIP39 phrase
 - All crypto lines tagged `CRYPTO-REVIEW`
 - Index + design notes: `docs/CRYPTO_REVIEW.md`
@@ -46,14 +46,14 @@
 
 ## Run on one PC (no hardware)
 - `cargo build --workspace`
-- `cargo run -p pc-daemon` (copy the PC key ID from the log)
-- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `pc_addr = "127.0.0.1:7400"`, `pc_key_id`, `data_dir = "/tmp/farmlab-hub"`
+- `cargo run -p pc-daemon`
+- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `data_dir = "/tmp/farmlab-hub"`
 - `cargo run -p hub-node -- --config /tmp/hub.toml init`
 - `cargo run -p hub-node -- --config /tmp/hub.toml`
 - `cd frontend && npm install && npm run dev`
-- `cargo run -p node-sim -- --state /tmp/sim1.json --pair --hub-key <hub public key>`
-- Approve the hub, then the node, on the Pairing page
-- Phone without a phone: `cargo run -p farmlab-mobile-core --example phone -- --state /tmp/phone.json pair`, approve it, then `... ask '{"type":"channels"}'`
+- In another terminal: `cargo run -p hub-node -- --config /tmp/hub.toml pair` → Pairing → Add hub → `127.0.0.1` + the code
+- `cargo run -p node-sim -- --state /tmp/sim1.json --pair --hub-key <hub public key>` → approve the node on the Pairing page
+- Phone without a phone: Pairing → Add phone → Copy link, then `cargo run -p farmlab-mobile-core --example phone -- --state /tmp/phone.json pair-qr '<link>'` and `... --hub 127.0.0.1:7302 ask '{"type":"channels"}'`
 
 ## Tests
 - `cargo test --workspace`

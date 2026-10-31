@@ -37,11 +37,21 @@ export interface Status {
 }
 
 export interface PendingPair {
-  kind: "hub" | "node" | "phone";
+  kind: "node" | "phone";
   public_key: string;
   fingerprint: string;
   transport: "wifi" | "lora" | null;
   seen_at: number;
+}
+
+/** A one-time phone pairing QR code (POST /api/phones/ticket). */
+export interface PhoneTicket {
+  phone_id: number;
+  uri: string;
+  /** QR code drawn by the daemon (Rust qrcode crate). */
+  svg: string;
+  expires: number;
+  hub_fingerprint: string;
 }
 
 export interface Phone {

@@ -58,10 +58,10 @@
 - Copy: `scp target/aarch64-unknown-linux-gnu/release/hub-node hub-node/hub.example.toml deploy/farmlab-hub.service pi@farmlab-hub.local:~`
 - Install on the Pi: `sudo useradd -r -G spi,gpio farmlab; sudo install hub-node /usr/local/bin/; sudo mkdir -p /etc/farmlab-hub /var/lib/farmlab-hub; sudo chown farmlab /var/lib/farmlab-hub; sudo cp hub.example.toml /etc/farmlab-hub/hub.toml`
 - Edit `/etc/farmlab-hub/hub.toml`:
-  - `pc_addr`: PC's IP
-  - `pc_key_id`: from pc-daemon's log / app Pairing page (hub only talks to that PC)
   - `lora.enabled = true`
   - `app_listen`: phone port (TCP), default `0.0.0.0:7302`
+  - no PC settings needed: the hub learns the PC's address and key when you pair (see Pairing)
+  - optional: `pc_addr` if the PC's IP changes later; `pc_key_id` to only ever pair with that PC
 - Create identity: `sudo -u farmlab hub-node --config /etc/farmlab-hub/hub.toml init`
   - 24 words shown once, never saved → write on paper
   - derived key IS saved in `/var/lib/farmlab-hub/identity.key` → keep SD card safe
@@ -74,22 +74,35 @@
 - `cargo build --release -p pc-daemon`
 - `./target/release/pc-daemon`
 - Firewall: allow TCP 7400 from the Pi (API on 7401 stays localhost-only)
+- Pi firewall (if any): allow TCP 7302 (phones) and, while pairing, TCP 7402
 - Run at login (Linux): `deploy/farmlab-daemon.service`
 - App needs Node.js 20+: `cd frontend && npm install && npm run dev`
 - Installer (AppImage / .exe / .dmg): `cd frontend && npm run dist`
 
 ## Pairing
-- Only step where a person decides trust → check fingerprints
-- Hub → PC (once):
-  - `pc_key_id` set, daemon + hub running
-  - App → Pairing → "Hub (Raspberry Pi)"
-  - Fingerprint must match the "phones, PC" line of `hub-node fingerprint` → Approve
+- Only step where a person decides trust
+- Hub → PC (once), proves it's the right Pi:
+  - daemon + hub running
+  - on the Pi: `sudo -u farmlab hub-node --config /etc/farmlab-hub/hub.toml pair`
+  - prints the Pi's IP and a 12-digit code (e.g. `4821-7730-1956`), open for 10 minutes
+  - App → Pairing → Add hub → IP + code → Pair hub
+  - only the Pi that printed the code can finish; an impostor can't guess it offline
+  - 3 wrong codes or one success closes the window; run `pair` again for a new code
+  - the running hub connects to the PC within a few seconds
+  - new PC later: `hub-node pair --replace`
 - Node → hub:
   - Node running, hold BOOT 3 s (not while plugging in: that's flashing mode)
   - Node asks to pair for 60 s
   - Fingerprint must match serial log → name it → Approve
   - Node logs `PAIRED as node 1 with hub 23C8-…` → match the app sidebar
-- Phone → hub:
+- Phone → hub, by QR code:
+  - Desktop Pairing → Add phone → QR code (hub must be online)
+  - scan it with the phone app → paired, no approval click
+  - works once, for 5 minutes; a hub restart cancels open codes
+  - the code also tells the phone which hub to trust, so it can't be fooled by another hub
+  - the QR is a key: don't let others photograph it while it's open
+  - (the scanner comes with the v2 phone app; until then use the manual way)
+- Phone → hub, manually:
   - Phone Settings → hub IP → Pair with hub
   - Desktop Pairing → "Phone app" → match fingerprint → name → Approve
 - Unpair a node:
@@ -148,9 +161,12 @@
 - `SX1262 init failed` → wiring (BUSY/RESET); Ebyte E22 needs `tcxo = true` (hub) / `tcxo: true` in `setup_lora` (node)
 - Temperature missing / "Sensor fault" → 4.7 kΩ pull-up DATA ↔ 3V3
 - Readings stop with PC off → expected; hub stores 30 days, sends backlog later
-- Hub log "answered with a key that is not pc_key_id" → recopy the key ID from the Pairing page
-- Hub won't start, "pc_public_key from before v2" → replace it with `pc_key_id` (Pairing page)
-- After upgrading to v2: approve the hub again on the Pairing page, and pair each phone again (nodes keep working)
+- Hub log "answered with a key that is not pc_key_id" → remove `pc_key_id` from hub.toml or recopy it from the Pairing page
+- Hub won't start, "pc_public_key from before v2" → delete that line (pair with `hub-node pair` instead)
+- Hub log "not paired with a PC yet" → run `hub-node pair` and enter the code in the app
+- Add hub: "can't reach the hub" → `hub-node pair` still running? right IP? TCP 7402 open on the Pi?
+- Add hub: "wrong pairing code" → retype it; after 3 tries run `hub-node pair` again
+- After upgrading to v2: pair the hub again with `hub-node pair`, and pair each phone again (nodes keep working)
 - Node log "saved pairing is for a different hub than FARMLAB_HUB_KEY" → pair again
 - Command "dropped" → LoRa node out of reach, 16+ queued; resend later
 - Phone "the hub didn't answer" → same Wi-Fi (not guest / mobile data), right IP, iOS Local Network allowed, TCP 7302 open on the Pi

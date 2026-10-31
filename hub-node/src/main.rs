@@ -11,6 +11,7 @@
 mod app_tcp;
 mod config;
 mod hub;
+mod pair_cmd;
 mod pc_link;
 mod radio;
 mod recipes;
@@ -55,6 +56,13 @@ enum Cmd {
     },
     /// Print the hub's public key and fingerprint.
     Fingerprint,
+    /// Pair with the PC: opens a 10-minute pairing window and prints a code
+    /// to enter in the desktop app.
+    Pair {
+        /// Replace the current PC pairing.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 #[tokio::main]
@@ -110,6 +118,16 @@ async fn main() -> Result<()> {
             print_fingerprint(&cfg)
         }
         Cmd::Fingerprint => print_fingerprint(&cfg),
+        Cmd::Pair { replace } => {
+            pair_cmd::run(
+                &cfg.data_dir,
+                &cfg.data_dir.join("pc_pairing.json"),
+                &cfg.pair_listen,
+                cfg.pc_key()?,
+                replace,
+            )
+            .await
+        }
         Cmd::Run => run(cfg).await,
     }
 }
@@ -136,7 +154,7 @@ fn print_fingerprint(cfg: &config::Config) -> Result<()> {
 
 async fn run(cfg: config::Config) -> Result<()> {
     let seed = seed::load(&cfg.data_dir)?;
-    let pc_key = cfg.pc_key()?;
+    let pc_pin = cfg.pc_key()?;
     let mut hub = Hub::new(&seed, Some(&cfg.data_dir))?;
     info!(
         "hub fingerprint {} (nodes), key ID {} (phones, PC)",
@@ -183,7 +201,7 @@ async fn run(cfg: config::Config) -> Result<()> {
     tokio::spawn(pc_link::run(
         seed,
         cfg.pc_addr.clone(),
-        pc_key,
+        pc_pin,
         cfg.data_dir.join("pc_pairing.json"),
         store.clone(),
         pc_tx,

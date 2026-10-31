@@ -65,6 +65,9 @@ async fn main() -> Result<()> {
     let conn = db::open(&data_dir.join("farmlab.db"))?;
 
     let state = Arc::new(state::AppState::new(conn, &seed, token));
+    state
+        .hub_listen_port
+        .store(args.hub_listen.port(), std::sync::atomic::Ordering::Relaxed);
     info!(
         "PC identity fingerprint {}",
         uplink::v2::fingerprint(state.identity.public_key())

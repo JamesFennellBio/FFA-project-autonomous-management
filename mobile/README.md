@@ -18,8 +18,8 @@
 
 ## Test the hub side without a phone
 - Hub + PC daemon running (main README)
-- `cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 --state /tmp/phone.json pair`
-- Approve "Phone app" on the desktop Pairing page
+- By QR: desktop Pairing → Add phone → Copy link, then `cargo run -p farmlab-mobile-core --example phone -- --state /tmp/phone.json pair-qr '<link>'`
+- Or manually: `cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 --state /tmp/phone.json pair`, then approve "Phone app" on the desktop Pairing page
 - `cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 --state /tmp/phone.json ask '{"type":"channels"}'`
 - Request types: top of `hub-node/src/hub/app.rs`
 
@@ -59,6 +59,7 @@
 - Optional: paste the hub key ID ("phones, PC" line of `hub-node fingerprint`) → refuses any other hub
 - Known gap until the Tauri app (Phase 4): the saved pairing now holds the hub's full hybrid key (~4 KB). expo-secure-store may refuse values over 2 KB on some iOS versions; the native build has never run on a phone, so this is untested.
 - Pair with hub → approve "Phone app" on desktop → match fingerprints
+- QR pairing: the Rust core has it (`parse_pairing_qr`, `HubClient::pair_with_qr`); the Expo app has no scanner, it arrives with the Tauri app (Phase 4)
 - Live: tap a sensor → history; switch → set output
 - Recipes: New recipe → drag blocks into when / do / otherwise; temperatures in °C
 - Save → hub checks it again

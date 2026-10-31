@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Alert, NodeInfo, PendingPair, Phone, Reading, Recipe, RecipeInput, RecipeSummary, Status } from "./types";
+import type { Alert, NodeInfo, PendingPair, Phone, PhoneTicket, Reading, Recipe, RecipeInput, RecipeSummary, Status } from "./types";
 
 type RawResponse = { ok: boolean; status: number; data: unknown };
 
@@ -39,6 +39,9 @@ export const api = {
   reject: (key: string) => call("POST", `/api/pairing/requests/${key}/reject`),
   phones: () => call<Phone[]>("GET", "/api/phones"),
   unpairPhone: (id: number) => call("DELETE", `/api/phones/${id}`),
+  // One-time code printed by `hub-node pair` on the Pi (SPAKE2, see uplink/src/pake.rs).
+  pairHub: (address: string, code: string) => call<{ fingerprint: string }>("POST", "/api/hubs/pair", { address, code }),
+  phoneTicket: () => call<PhoneTicket>("POST", "/api/phones/ticket"),
   alerts: (unacked = false) => call<Alert[]>("GET", `/api/alerts?unacked=${unacked}`),
   ackAlert: (id: number) => call("POST", `/api/alerts/${id}/ack`),
   // Passed on to the hub, which stores and runs them.

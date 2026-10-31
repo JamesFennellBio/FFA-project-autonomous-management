@@ -290,6 +290,8 @@ pub fn store_hub_msg(conn: &Connection, seq: i64, msg: &HubMsg) -> Result<()> {
                 params![node_id, channel, value, "Command dropped: the hub's queue for this node was full", ts],
             )?;
         }
+        // Handled in hub_link::store_batch (it adds the phone row).
+        HubMsg::PhonePaired { .. } => {}
         HubMsg::ApproveFailed {
             public_key,
             node_id,

@@ -11,16 +11,19 @@ use crypto_sharecrate::crypto::session::V2_MAX_MSGS;
 use crypto_sharecrate::crypto::v2::identity::{HybridIdentity, HybridPublic};
 use crypto_sharecrate::crypto::v2::pairing;
 use crypto_sharecrate::frame::FrameType;
-use farmlab_mobile_core::{HubClient, MobileError, new_identity_seed};
+use farmlab_mobile_core::{HubClient, MobileError, new_identity_seed, parse_pairing_qr};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use uplink::{read_frame, write_frame};
 
 const HUB_SEED: [u8; 32] = [1u8; 32];
 const PHONE_ID: u16 = 7;
+/// The QR ticket token the stand-in hub has open.
+const TICKET: [u8; 16] = [0x5A; 16];
 
 /// Accepts the phone on its second pairing request (as if someone clicked
-/// Approve in between), then echoes every request. With `drop_first`, the
+/// Approve in between), or on the first one if it proves it scanned the QR
+/// code for [`TICKET`] (a request with any other ticket is ignored). Then it echoes every request. With `drop_first`, the
 /// first request is ignored so the client has to retry. HELLO2s whose number
 /// (1-based) is in `drop_hellos` get no reply. State is shared across
 /// connections, like the real hub's.
@@ -62,7 +65,12 @@ async fn mini_hub_with(drop_first: bool, drop_hellos: &'static [usize]) -> Socke
                         FrameType::PairRequest2 => {
                             let req = pairing::parse_pair_request(&f).unwrap();
                             st.pair_requests += 1;
-                            if st.pair_requests < 2 {
+                            if req.ticket_mac.is_some() {
+                                let kid = st.identity.key_id();
+                                if pairing::verify_ticket(&req, &TICKET, &kid).is_err() {
+                                    continue;
+                                }
+                            } else if st.pair_requests < 2 {
                                 continue;
                             }
                             let acc = pairing::pair_accept(&st.identity, &req.device_pub, PHONE_ID);
@@ -211,4 +219,72 @@ async fn recovers_after_a_rekey_times_out() {
     // again rather than try the used-up session.
     let r = c.request(r#"{"type":"info"}"#.into()).await;
     assert!(r.is_ok(), "{r:?}");
+}
+
+fn qr_for(addr: SocketAddr, token: [u8; 16]) -> String {
+    uplink::pairlink::PhoneQr {
+        addr: addr.to_string(),
+        hub_key_id: HybridIdentity::from_seed(&HUB_SEED).key_id(),
+        token,
+        expires: 1_900_000_000,
+    }
+    .to_uri()
+}
+
+#[tokio::test]
+async fn a_qr_code_pairs_at_once_with_the_pinned_hub() {
+    let addr = mini_hub(false).await;
+    let uri = qr_for(addr, TICKET);
+    let qr = parse_pairing_qr(uri.clone()).unwrap();
+    assert_eq!(qr.hub_addr, addr.to_string());
+    assert_eq!(
+        qr.hub_fingerprint,
+        farmlab_mobile_core::fingerprint_of_key(qr.hub_key_id.clone()).unwrap()
+    );
+    let c = client(addr, Some(qr.hub_key_id));
+    let t = Instant::now();
+    let p = c.pair_with_qr(uri, 10).await.unwrap();
+    // First request accepted: no approval round (that takes a 3 s retry).
+    assert!(t.elapsed().as_secs() < 2, "{:?}", t.elapsed());
+    assert_eq!(p.phone_id, PHONE_ID);
+    let v: Value =
+        serde_json::from_str(&c.request(r#"{"type":"info"}"#.into()).await.unwrap()).unwrap();
+    assert_eq!(v["echo"]["type"], "info");
+}
+
+#[tokio::test]
+async fn a_wrong_qr_ticket_is_not_accepted() {
+    let addr = mini_hub(false).await;
+    let uri = qr_for(addr, [1u8; 16]);
+    let qr = parse_pairing_qr(uri.clone()).unwrap();
+    let c = client(addr, Some(qr.hub_key_id));
+    assert!(matches!(
+        c.pair_with_qr(uri, 4).await,
+        Err(MobileError::Pairing(_))
+    ));
+}
+
+#[tokio::test]
+async fn qr_pairing_needs_a_client_made_from_that_qr_code() {
+    let addr = mini_hub(false).await;
+    let uri = qr_for(addr, TICKET);
+    // Not pinned to the QR code's hub.
+    assert!(matches!(
+        client(addr, None).pair_with_qr(uri.clone(), 4).await,
+        Err(MobileError::Invalid(_))
+    ));
+    // A different hub address.
+    let qr = parse_pairing_qr(uri.clone()).unwrap();
+    let other = HubClient::new(
+        new_identity_seed().unwrap(),
+        "127.0.0.1:1".into(),
+        None,
+        Some(qr.hub_key_id),
+    )
+    .unwrap();
+    assert!(matches!(
+        other.pair_with_qr(uri, 4).await,
+        Err(MobileError::Invalid(_))
+    ));
+    assert!(parse_pairing_qr("https://example.com".into()).is_err());
 }

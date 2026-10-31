@@ -17,6 +17,9 @@ use crypto_sharecrate::frame::{FrameType, HEADER_LEN, TAG_LEN};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+pub mod pairlink;
+pub mod pake;
+
 /// Largest TCP frame we accept (guards against a huge length prefix).
 pub const MAX_TCP_FRAME: usize = 32 * 1024;
 /// Max messages the hub packs into one encrypted uplink frame.
@@ -172,6 +175,14 @@ pub enum HubMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         err: Option<String>,
     },
+    /// A phone paired with a valid QR ticket (the hub approved it itself).
+    /// `key_id` is the phone's KeyId (hex).
+    PhonePaired {
+        phone_id: u16,
+        key_id: String,
+        fingerprint: String,
+        ts: i64,
+    },
 }
 
 /// Recipe requests from the desktop app. The hub stores and runs recipes
@@ -230,6 +241,14 @@ pub enum PcMsg {
     },
     /// A recipe request; the hub answers with [`HubMsg::RecipeReply`].
     Recipe { req: u32, op: RecipeOp },
+    /// A one-time phone pairing ticket from the desktop app's QR code.
+    /// CRYPTO-REVIEW: `token` (hex, 16 bytes) is the HMAC key the phone proves
+    /// it knows; the hub accepts it once, for `ttl_secs`, for this `phone_id`.
+    PhoneTicket {
+        token: String,
+        phone_id: u16,
+        ttl_secs: u32,
+    },
 }
 
 /// One encrypted hub -> PC frame. Each message carries the hub's row id so

@@ -160,7 +160,7 @@ impl Hub {
                 if !self.take_sig_budget(mono) {
                     anyhow::bail!("signature budget used up; pair request dropped");
                 }
-                self.on_phone_pair_request(frame, link, unix, out)
+                self.on_phone_pair_request(frame, link, mono, unix, out)
             }
             FrameType::Hello2 => self.on_phone_hello(frame, link, mono, out),
             FrameType::Uplink => {
@@ -204,13 +204,15 @@ impl Hub {
         }
     }
 
-    /// CRYPTO-REVIEW: v2 pairing for phones. The phone's hybrid key is only
-    /// pinned once a person approved its KeyId in the desktop app. (Phase 3
-    /// adds the QR-ticket path, `pairing::verify_ticket`.)
+    /// CRYPTO-REVIEW: v2 pairing for phones. The phone's hybrid key is pinned
+    /// either because it proved it scanned an open QR ticket (the desktop app
+    /// made it, so a person is present), or once a person approved its KeyId
+    /// in the desktop app.
     fn on_phone_pair_request(
         &mut self,
         frame: &[u8],
         link: Link,
+        mono: u64,
         unix: i64,
         out: &mut Output,
     ) -> Result<()> {
@@ -225,6 +227,39 @@ impl Hub {
                 pairing2::pair_accept(&self.pq_identity, &req.device_pub, *id).to_vec(),
             ));
             return Ok(());
+        }
+        if req.ticket_mac.is_some() {
+            self.tickets.retain(|t| mono < t.expires);
+            let my_kid = self.pq_identity.key_id();
+            // CRYPTO-REVIEW: constant-time HMAC check against each open ticket.
+            if let Some(i) = self
+                .tickets
+                .iter()
+                .position(|t| pairing2::verify_ticket(&req, &t.token, &my_kid).is_ok())
+            {
+                let t = self.tickets.remove(i).expect("found above"); // burned: single use
+                let id = t.phone_id;
+                if self.phones.contains_key(&id) {
+                    anyhow::bail!("QR ticket for phone id {id}, which is already paired");
+                }
+                let fingerprint = uplink::v2::fingerprint(&req.device_pub);
+                info!("pairing phone {id} ({fingerprint}) with a QR code");
+                self.phones
+                    .insert(id, PhoneEntry::new(Box::new(req.device_pub)));
+                self.save()?;
+                out.frames.push((
+                    link,
+                    pairing2::pair_accept(&self.pq_identity, &req.device_pub, id).to_vec(),
+                ));
+                out.to_pc.push(HubMsg::PhonePaired {
+                    phone_id: id,
+                    key_id: hex::encode(kid),
+                    fingerprint,
+                    ts: unix,
+                });
+                return Ok(());
+            }
+            debug!("pair request with a ticket that matches no open QR code");
         }
         if let Some(id) = self.approved_phones.remove(&kid) {
             info!(
@@ -712,6 +747,133 @@ mod tests {
             out.frames.iter().any(|(l, _)| matches!(l, Link::Udp(_))),
             "Wi-Fi node gets the command right away"
         );
+    }
+
+    fn open_ticket(hub: &mut Hub, token: [u8; 16], phone_id: u16, ttl_secs: u32) {
+        hub.on_pc(
+            PcMsg::PhoneTicket {
+                token: hex::encode(token),
+                phone_id,
+                ttl_secs,
+            },
+            10,
+            0,
+        );
+    }
+
+    fn ticket_request(phone: &LinkCore, token: &[u8; 16], hub_kid: &[u8; 32]) -> Vec<u8> {
+        use crypto_sharecrate::crypto::v2::pairing::Ticket;
+        phone
+            .pair_request(Some(Ticket {
+                token,
+                responder_key_id: hub_kid,
+            }))
+            .to_vec()
+    }
+
+    #[test]
+    fn a_qr_ticket_pairs_a_phone_without_approval() {
+        let mut r = rig();
+        let kid = r.hub.pq_key_id();
+        open_ticket(&mut r.hub, [7u8; 16], 9, 300);
+        let mut phone = LinkCore::new(&[40u8; 32], None).with_expected_peer(kid);
+        let out = r.hub.on_app_frame(
+            &ticket_request(&phone, &[7u8; 16], &kid),
+            77,
+            20,
+            500,
+            &r.store,
+        );
+        match phone.handle_frame(&out.frames[0].1, 20).unwrap() {
+            LinkEvent::Paired(p) => assert_eq!(p.node_id, 9),
+            e => panic!("{e:?}"),
+        }
+        assert!(matches!(
+            &out.to_pc[0],
+            HubMsg::PhonePaired { phone_id: 9, key_id, .. } if *key_id == hex::encode(phone.key_id())
+        ));
+        assert!(out.live.is_empty(), "nothing to approve");
+    }
+
+    #[test]
+    fn bad_reused_expired_or_relayed_tickets_do_not_pair() {
+        let mut r = rig();
+        let kid = r.hub.pq_key_id();
+        open_ticket(&mut r.hub, [7u8; 16], 9, 300);
+
+        // Wrong token: falls back to asking a person.
+        let p1 = LinkCore::new(&[41u8; 32], None);
+        let out = r.hub.on_app_frame(
+            &ticket_request(&p1, &[8u8; 16], &kid),
+            77,
+            20,
+            600,
+            &r.store,
+        );
+        assert!(out.frames.is_empty());
+        assert!(matches!(
+            out.live[0],
+            HubMsg::PairRequest {
+                kind: DeviceKind::Phone,
+                ..
+            }
+        ));
+
+        // A proof made for a different hub (relayed) doesn't count either.
+        let other_hub = [3u8; 32];
+        let out = r.hub.on_app_frame(
+            &ticket_request(&p1, &[7u8; 16], &other_hub),
+            77,
+            20,
+            700,
+            &r.store,
+        );
+        assert!(out.frames.is_empty());
+
+        // The right token works once...
+        let p2 = LinkCore::new(&[42u8; 32], None);
+        let out = r.hub.on_app_frame(
+            &ticket_request(&p2, &[7u8; 16], &kid),
+            77,
+            20,
+            800,
+            &r.store,
+        );
+        assert_eq!(out.frames.len(), 1);
+        // ...and never again.
+        let p3 = LinkCore::new(&[43u8; 32], None);
+        let out = r.hub.on_app_frame(
+            &ticket_request(&p3, &[7u8; 16], &kid),
+            77,
+            21,
+            900,
+            &r.store,
+        );
+        assert!(out.frames.is_empty());
+
+        // Expired.
+        open_ticket(&mut r.hub, [9u8; 16], 10, 5);
+        let p4 = LinkCore::new(&[44u8; 32], None);
+        let out = r.hub.on_app_frame(
+            &ticket_request(&p4, &[9u8; 16], &kid),
+            77,
+            16,
+            1000,
+            &r.store,
+        );
+        assert!(out.frames.is_empty());
+    }
+
+    #[test]
+    fn a_ticket_for_a_used_phone_id_is_refused() {
+        let mut r = rig();
+        let kid = r.hub.pq_key_id();
+        open_ticket(&mut r.hub, [7u8; 16], 1, 300); // phone 1 is the rig's phone
+        let p = LinkCore::new(&[45u8; 32], None);
+        let out = r
+            .hub
+            .on_app_frame(&ticket_request(&p, &[7u8; 16], &kid), 77, 20, 500, &r.store);
+        assert!(out.frames.is_empty());
     }
 
     #[test]

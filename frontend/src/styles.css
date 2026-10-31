@@ -146,6 +146,8 @@ label { display: inline-flex; align-items: center; gap: 4px; margin: 6px 0; }
 .pubkey code { word-break: break-all; }
 .fp { font-family: ui-monospace, "SF Mono", Consolas, monospace; }
 .steps li { margin: 6px 0; line-height: 1.5; }
+.qr { width: 220px; max-width: 100%; margin: 8px 0; background: #fff; padding: 8px; border-radius: 8px; }
+.qr svg { display: block; width: 100%; height: auto; }
 .empty { text-align: center; margin-top: 12vh; }
 
 .muted { color: var(--muted); }

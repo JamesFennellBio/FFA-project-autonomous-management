@@ -121,6 +121,31 @@ pub fn fingerprint_of_key(public_key_hex: String) -> Result<String, MobileError>
     )?))
 }
 
+/// What a phone pairing QR code says, for showing before pairing.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PairingQr {
+    /// "ip:port" to pass to [`HubClient::new`].
+    pub hub_addr: String,
+    /// CRYPTO-REVIEW: the hub's key ID (hex). Pass it to [`HubClient::new`] as
+    /// `expected_hub_key`, so only that hub is accepted.
+    pub hub_key_id: String,
+    pub hub_fingerprint: String,
+    /// Unix time the code stops working (the hub enforces it).
+    pub expires: i64,
+}
+
+/// Reads a phone pairing QR code (`farmlab://pair?...`).
+#[uniffi::export]
+pub fn parse_pairing_qr(uri: String) -> Result<PairingQr, MobileError> {
+    let qr = uplink::pairlink::PhoneQr::parse(&uri).map_err(invalid)?;
+    Ok(PairingQr {
+        hub_fingerprint: uplink::v2::fingerprint_of_key_id(&qr.hub_key_id),
+        hub_key_id: hex::encode(qr.hub_key_id),
+        hub_addr: qr.addr,
+        expires: qr.expires,
+    })
+}
+
 struct Inner {
     core: LinkCore,
     conn: Option<TcpStream>,
@@ -196,16 +221,80 @@ impl HubClient {
     /// Asks the hub to pair, repeating until someone approves this phone in
     /// the desktop app or `timeout_secs` runs out.
     pub async fn pair(&self, timeout_secs: u32) -> Result<PhonePairing, MobileError> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs.into());
         let mut guard = self.inner.lock().await;
         let g = &mut *guard;
         if let Some(p) = g.core.pairing() {
             return Ok(to_pairing(&p));
         }
         let req = g.core.pair_request(None);
+        self.pair_loop(
+            g,
+            &req,
+            timeout_secs,
+            "not approved in time; approve this phone on the desktop app's Pairing page",
+        )
+        .await
+    }
+
+    /// Pairs using the QR code from the desktop app (Pairing > Add phone). No
+    /// approval click is needed: the code proves a person at the desktop
+    /// wanted this phone added.
+    ///
+    /// CRYPTO-REVIEW: make this client from the same QR code first
+    /// (`parse_pairing_qr` -> `HubClient::new(seed, qr.hub_addr, None,
+    /// Some(qr.hub_key_id))`), so the hub's key is pinned before anything is
+    /// sent. This refuses a client made any other way.
+    pub async fn pair_with_qr(
+        &self,
+        qr_uri: String,
+        timeout_secs: u32,
+    ) -> Result<PhonePairing, MobileError> {
+        use crypto_sharecrate::crypto::v2::pairing::Ticket;
+        let qr = uplink::pairlink::PhoneQr::parse(&qr_uri).map_err(invalid)?;
+        if qr.addr != self.hub_addr {
+            return Err(invalid(format!(
+                "this QR code is for the hub at {}, not {}",
+                qr.addr, self.hub_addr
+            )));
+        }
+        let mut guard = self.inner.lock().await;
+        let g = &mut *guard;
+        if g.core.expected_peer() != Some(qr.hub_key_id) {
+            return Err(invalid(
+                "make the hub client with the QR code's hub key (see parse_pairing_qr)",
+            ));
+        }
+        if let Some(p) = g.core.pairing() {
+            return Ok(to_pairing(&p));
+        }
+        let req = g.core.pair_request(Some(Ticket {
+            token: &qr.token,
+            responder_key_id: &qr.hub_key_id,
+        }));
+        self.pair_loop(
+            g,
+            &req,
+            timeout_secs,
+            "the hub didn't accept this QR code (it may have expired or been used); \
+             show a new one on the desktop app",
+        )
+        .await
+    }
+}
+
+impl HubClient {
+    /// Sends `req` every few seconds until the hub's PAIR_ACCEPT2 arrives.
+    async fn pair_loop(
+        &self,
+        g: &mut Inner,
+        req: &[u8],
+        timeout_secs: u32,
+        not_accepted: &str,
+    ) -> Result<PhonePairing, MobileError> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs.into());
         while tokio::time::Instant::now() < deadline {
             let wait = (tokio::time::Instant::now() + PAIR_RETRY).min(deadline);
-            if let Err(e) = self.send(g, &req).await {
+            if let Err(e) = self.send(g, req).await {
                 // The hub may be restarting; keep trying until the deadline.
                 if tokio::time::Instant::now() + PAIR_RETRY >= deadline {
                     return Err(e);
@@ -229,11 +318,12 @@ impl HubClient {
                 }
             }
         }
-        Err(MobileError::Pairing(
-            "not approved in time; approve this phone on the desktop app's Pairing page".into(),
-        ))
+        Err(MobileError::Pairing(not_accepted.into()))
     }
+}
 
+#[uniffi::export(async_runtime = "tokio")]
+impl HubClient {
     /// Sends one request (JSON, e.g. `{"type":"channels","offset":0}`) and
     /// returns the hub's answer as JSON. A refusal from the hub comes back as
     /// `MobileError::Hub` with its reason.
