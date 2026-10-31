@@ -1,0 +1,7 @@
+{
+  "identifier": "mobile",
+  "description": "Camera QR scanner for phone pairing (Android / iOS only).",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "permissions": ["barcode-scanner:allow-scan", "barcode-scanner:allow-cancel", "barcode-scanner:allow-check-permissions", "barcode-scanner:allow-request-permissions"]
+}

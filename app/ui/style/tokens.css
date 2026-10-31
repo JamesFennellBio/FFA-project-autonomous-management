@@ -1,0 +1,214 @@
+/* Farm & Lab v2 design tokens. Source: docs/design/specs/farmlab-spec.md
+   (Linear / Vercel / Chronicle reference specs). Shared by desktop and phone.
+
+   Switches, all on <html>:
+     data-mode="lab|farm|home"   accent color
+     data-theme="light|dark"     resolved by the app (it follows the OS for "system")
+     data-sunlight               max-contrast outdoor theme (Farm on the phone by default)
+     data-boomer                 big type, big targets, no motion
+     data-lite                   fewer animations (reveals only)
+     data-platform="desktop|phone" */
+
+@font-face {
+  font-family: "Geist";
+  src: url("../vendor/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../vendor/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* light (Vercel / Chronicle grays) */
+  --bg: #f1f1ef;
+  --panel: #fafaf8;
+  --surface: #ffffff;
+  --surface-2: rgba(20, 20, 18, 0.045);
+  --raised: #ffffff;
+  --border: rgba(20, 20, 18, 0.1);
+  --border-strong: rgba(20, 20, 18, 0.2);
+  --line-w: 1px;
+  --dot: rgba(20, 20, 18, 0.11);
+  --text: #171717;
+  --muted: #4d4d4d;
+  --faint: #6b6b6b;
+  --bad: #d92d20;
+  --bad-soft: rgba(217, 45, 32, 0.1);
+  --warn: #a85b00;
+  --warn-soft: rgba(168, 91, 0, 0.1);
+  --shadow-2: 0 0 0 1px rgba(20, 20, 18, 0.08), 0 1px 1px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.08),
+    0 24px 48px rgba(0, 0, 0, 0.06);
+  --scrim: rgba(20, 20, 18, 0.18);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-chron: cubic-bezier(0.41, 0.66, 0.36, 0.86);
+  --t-fast: 150ms;
+  --t-reveal: 400ms;
+
+  /* type */
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --fs-display: 48px;
+  --fs-title: 28px;
+  --fs-section: 20px;
+  --fs-body: 14px;
+  --fs-label: 13px;
+  --fs-meta: 12px;
+  --fs-eyebrow: 11px;
+  --fs-num: 26px;
+
+  /* shape */
+  --r-control: 6px;
+  --r-card: 8px;
+  --r-panel: 12px;
+  --h-control: 32px;
+  --h-row: 40px;
+
+  /* accent default (farm) */
+  --accent: #2fbf71;
+  --accent-strong: #2fbf71;
+  --accent-ink: #000000;
+  --accent-soft: rgba(47, 191, 113, 0.14);
+  --accent-text: #11693b;
+
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --bg: #121315;
+  --panel: #17181a;
+  --surface: #1c1d20;
+  --surface-2: rgba(236, 233, 226, 0.05);
+  --raised: #202124;
+  --border: rgba(236, 233, 226, 0.09);
+  --border-strong: rgba(236, 233, 226, 0.18);
+  --dot: rgba(236, 233, 226, 0.075);
+  --text: #f2f1ee;
+  --muted: #a9a7a1;
+  --faint: #8a8883;
+  --bad: #ff6b5e;
+  --bad-soft: rgba(255, 107, 94, 0.13);
+  --warn: #f5a524;
+  --warn-soft: rgba(245, 165, 36, 0.12);
+  --shadow-2: 0 0 0 1px rgba(236, 233, 226, 0.1), 0 8px 24px rgba(0, 0, 0, 0.45), 0 24px 64px rgba(0, 0, 0, 0.4);
+  --scrim: rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+/* Mode accents. Lab fills use the deeper blue so white ink stays 5.2:1. */
+html[data-mode="lab"] {
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --accent-text: #0a4fc4;
+}
+html[data-mode="farm"] {
+  --accent: #2fbf71;
+  --accent-strong: #2fbf71;
+  --accent-ink: #000000;
+  --accent-soft: rgba(47, 191, 113, 0.14);
+  --accent-text: #11693b;
+}
+html[data-mode="home"] {
+  --accent: #ff8a3d;
+  --accent-strong: #ff8a3d;
+  --accent-ink: #000000;
+  --accent-soft: rgba(255, 138, 61, 0.15);
+  --accent-text: #a3460a;
+}
+html[data-theme="dark"][data-mode="lab"] {
+  --accent-text: #8db6ff;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+}
+html[data-theme="dark"][data-mode="farm"] {
+  --accent-text: #6be3a2;
+  --accent-soft: rgba(47, 191, 113, 0.15);
+}
+html[data-theme="dark"][data-mode="home"] {
+  --accent-text: #ffb27a;
+  --accent-soft: rgba(255, 138, 61, 0.15);
+}
+
+/* Sunlight: pure white / pure black, thick lines, one size up (outdoors, glare). */
+html[data-sunlight] {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-2: rgba(0, 0, 0, 0.06);
+  --raised: #ffffff;
+  --border: rgba(0, 0, 0, 0.28);
+  --border-strong: rgba(0, 0, 0, 0.5);
+  --line-w: 1.5px;
+  --dot: rgba(0, 0, 0, 0.12);
+  --text: #000000;
+  --muted: #262626;
+  --faint: #333333;
+  --bad: #c21807;
+  --bad-soft: rgba(194, 24, 7, 0.12);
+  --warn: #8a4b00;
+  --warn-soft: rgba(138, 75, 0, 0.12);
+  --fs-body: 15px;
+  --fs-label: 14px;
+  --fs-meta: 13px;
+  --h-control: 48px;
+  --h-row: 52px;
+  color-scheme: light;
+}
+html[data-sunlight][data-mode="farm"] {
+  --accent: #14c95b;
+  --accent-strong: #14c95b;
+  --accent-ink: #000000;
+  --accent-soft: rgba(20, 201, 91, 0.2);
+  --accent-text: #00702f;
+}
+html[data-sunlight][data-mode="lab"] {
+  --accent-text: #0a4fc4;
+}
+html[data-sunlight][data-mode="home"] {
+  --accent-text: #a3460a;
+}
+
+/* Boomer Mode: 1.35x type, 56 px targets, no motion. */
+html[data-boomer] {
+  --fs-display: 56px;
+  --fs-title: 36px;
+  --fs-section: 26px;
+  --fs-body: 19px;
+  --fs-label: 18px;
+  --fs-meta: 16px;
+  --fs-eyebrow: 14px;
+  --fs-num: 34px;
+  --h-control: 56px;
+  --h-row: 64px;
+  --r-control: 10px;
+}
+
+/* No motion: Boomer Mode and reduced-motion. Lite keeps only short fades. */
+html[data-boomer] *,
+html[data-boomer] *::before,
+html[data-boomer] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+html[data-lite] .rise {
+  animation-name: fl-fade !important;
+  animation-delay: 0ms !important;
+}
+html[data-lite] .skel {
+  animation: none !important;
+}

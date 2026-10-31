@@ -1,6 +1,10 @@
 # Rust build output
 target/
 
+# App: Trunk output and files Tauri generates
+app/ui/dist/
+app/src-tauri/gen/
+
 # Editor / OS files
 .DS_Store
 *.swp

@@ -1,0 +1,20 @@
+[package]
+name = "farmlab-ui"
+version.workspace = true
+edition.workspace = true
+description = "Farm & Lab app UI (Leptos, compiled to WASM). Runs inside the Tauri shell on desktop and phone."
+
+[dependencies]
+leptos = { version = "0.8", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "DomRect", "Storage",
+    "KeyboardEvent", "MouseEvent", "PointerEvent", "MediaQueryList", "Navigator", "Clipboard",
+    "HtmlInputElement", "HtmlSelectElement",
+] }
+serde.workspace = true
+serde_json.workspace = true
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
