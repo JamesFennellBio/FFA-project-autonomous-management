@@ -5,9 +5,10 @@
 //!                               ├─> hub task (pairing, ECDH sessions) ──> RAM SQLite ──> PC daemon (TCP, encrypted)
 //!  ESP32 nodes ──Wi-Fi UDP──────┘          │                               (flushed to SD once a day)
 //!                                          ├── recipes (hub runs them, PC can be off)
-//!  phone app ───Wi-Fi UDP (port 7301)──────┘
+//!  phone app ───Wi-Fi TCP (port 7302)──────┘
 //! ```
 
+mod app_tcp;
 mod config;
 mod hub;
 mod pc_link;
@@ -116,10 +117,19 @@ async fn main() -> Result<()> {
 fn print_fingerprint(cfg: &config::Config) -> Result<()> {
     let seed = seed::load(&cfg.data_dir)?;
     let pk = crypto_sharecrate::crypto::identity::Identity::from_seed(&seed).public_key();
-    println!("Hub fingerprint: {}", uplink::fingerprint_hex(&pk));
-    println!("Hub public key:  {}", uplink::key_to_hex(&pk));
+    let pq = crypto_sharecrate::crypto::v2::identity::HybridIdentity::from_seed(&seed);
     println!(
-        "(build node firmware with FARMLAB_HUB_KEY=<public key> so nodes only pair with this hub)"
+        "Hub fingerprint (phones, PC): {}",
+        uplink::v2::fingerprint(pq.public_key())
+    );
+    println!("Hub key ID (phones, PC):      {}", hex::encode(pq.key_id()));
+    println!(
+        "Hub fingerprint (nodes):      {}",
+        uplink::fingerprint_hex(&pk)
+    );
+    println!("Hub public key (nodes):       {}", uplink::key_to_hex(&pk));
+    println!(
+        "(build node firmware with FARMLAB_HUB_KEY=<public key (nodes)> so nodes only pair with this hub)"
     );
     Ok(())
 }
@@ -129,8 +139,9 @@ async fn run(cfg: config::Config) -> Result<()> {
     let pc_key = cfg.pc_key()?;
     let mut hub = Hub::new(&seed, Some(&cfg.data_dir))?;
     info!(
-        "hub fingerprint {}",
-        uplink::fingerprint_hex(&hub.public_key())
+        "hub fingerprint {} (nodes), key ID {} (phones, PC)",
+        uplink::fingerprint_hex(&hub.public_key()),
+        hex::encode(hub.pq_key_id())
     );
 
     let store = Arc::new(Mutex::new(Store::open(&cfg.data_dir.join("hub.db"))?));
@@ -149,13 +160,11 @@ async fn run(cfg: config::Config) -> Result<()> {
         radio::MAX_RADIO_FRAME,
         Link::Udp,
     ));
-    let app_udp = Arc::new(UdpSocket::bind(&cfg.app_listen).await?);
-    info!("listening for the phone app on udp://{}", cfg.app_listen);
-    tokio::spawn(radio::udp::recv_loop(
-        app_udp.clone(),
+    let phones = app_tcp::Phones::default();
+    tokio::spawn(app_tcp::serve(
+        app_tcp::bind(&cfg.app_listen).await?,
         in_tx.clone(),
-        uplink::app::MAX_APP_FRAME,
-        Link::App,
+        phones.clone(),
     ));
 
     #[cfg(feature = "lora")]
@@ -187,9 +196,9 @@ async fn run(cfg: config::Config) -> Result<()> {
     loop {
         let out: Output = tokio::select! {
             Some(inb) = in_rx.recv() => match inb.link {
-                Link::App(addr) => {
+                Link::App(conn) => {
                     let st = store.lock().unwrap();
-                    hub.on_app_frame(&inb.frame, addr, uplink::mono_now(), uplink::unix_now(), &st)
+                    hub.on_app_frame(&inb.frame, conn, uplink::mono_now(), uplink::unix_now(), &st)
                 }
                 link => hub.on_frame(&inb.frame, link, uplink::mono_now(), uplink::unix_now()),
             },
@@ -213,11 +222,7 @@ async fn run(cfg: config::Config) -> Result<()> {
                         warn!("udp send to {addr}: {e}");
                     }
                 }
-                Link::App(addr) => {
-                    if let Err(e) = app_udp.send_to(&frame, addr).await {
-                        warn!("udp send to phone {addr}: {e}");
-                    }
-                }
+                Link::App(conn) => phones.send(conn, frame),
                 Link::Lora =>
                 {
                     #[cfg(feature = "lora")]

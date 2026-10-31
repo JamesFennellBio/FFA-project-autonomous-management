@@ -102,7 +102,7 @@ function handle(method: string, path: string, body: unknown): unknown {
   if (p[0] === "status") {
     const s: Status = {
       pc_fingerprint: "3C9E-1A42-D07B",
-      pc_public_key: "9f2c4e1ab37d0c5e8f61a2b49d7c03e5f1a8b26d4c9e07f3a51b8d2c6e94f017",
+      pc_key_id: "9f2c4e1ab37d0c5e8f61a2b49d7c03e5f1a8b26d4c9e07f3a51b8d2c6e94f017",
       time: now(),
       hub: { paired: true, fingerprint: "E5A0-6B13-F8D2", connected: true, last_seen: now(), backlog: 0, sessions: 56 },
     };

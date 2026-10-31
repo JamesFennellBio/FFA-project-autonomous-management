@@ -17,7 +17,7 @@ const STORE_OPTS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
-export const DEFAULT_PORT = 7301;
+export const DEFAULT_PORT = 7302;
 
 interface Settings {
   seed: string;
@@ -46,7 +46,7 @@ interface HubState {
 
 const Ctx = createContext<HubState | null>(null);
 
-/** "192.168.1.20" -> "192.168.1.20:7301" */
+/** "192.168.1.20" -> "192.168.1.20:7302" */
 export function withPort(addr: string): string {
   const a = addr.trim();
   return /:\d+$/.test(a) ? a : `${a}:${DEFAULT_PORT}`;

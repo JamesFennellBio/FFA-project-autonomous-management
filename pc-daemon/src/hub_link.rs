@@ -1,6 +1,6 @@
 //! TCP link to the Pi hub. The PC is the *responder*: the hub pairs with it,
-//! then starts an ECDH handshake every 10 frames / 1 hour, like a node does
-//! with the hub.
+//! then starts a v2 hybrid handshake (Ed25519 + ML-DSA-65 signatures,
+//! X25519 + ML-KEM-768 keys) every 1000 frames / 1 hour.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use crypto_sharecrate::crypto::{handshake, pairing, responder::PeerSessions};
+use crypto_sharecrate::crypto::responder::PeerSessions;
+use crypto_sharecrate::crypto::v2::{
+    handshake as handshake2, identity as identity2, pairing as pairing2,
+};
 use crypto_sharecrate::frame::FrameType;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -142,14 +145,12 @@ async fn serve_on(state: Arc<AppState>, listener: TcpListener) {
     }
 }
 
-/// CRYPTO-REVIEW: 48 random bytes for one handshake (ephemeral key + nonce)
-/// plus 4 for the epoch id, from the OS RNG.
-fn hs_random() -> Result<([u8; 48], u32)> {
-    let mut r = [0u8; 52];
-    uplink::getrandom(&mut r)?;
-    let mut hs = [0u8; 48];
-    hs.copy_from_slice(&r[..48]);
-    Ok((hs, u32::from_le_bytes([r[48], r[49], r[50], r[51]])))
+/// CRYPTO-REVIEW: random bytes for one v2 handshake plus 4 for the epoch id,
+/// from the OS RNG.
+fn hs_random() -> Result<(handshake2::HandshakeRandom, u32)> {
+    let mut e = [0u8; 4];
+    uplink::getrandom(&mut e)?;
+    Ok((uplink::v2::hs_random()?, u32::from_le_bytes(e)))
 }
 
 async fn handle(
@@ -183,7 +184,9 @@ async fn handle(
             ) => {
                 let frame = frame.map_err(|_| anyhow::anyhow!("timed out waiting for a frame"))??;
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
-                    FrameType::PairRequest => {
+                    // CRYPTO-REVIEW: only v2 frames on the hub port. A v1
+                    // PAIR_REQUEST or HELLO hits "unexpected frame" (no downgrade).
+                    FrameType::PairRequest2 => {
                         if !state.take_sig_budget(mono_now()) {
                             bail!("signature budget used up");
                         }
@@ -194,21 +197,21 @@ async fn handle(
                             write_frame(&mut wr, &reply).await?;
                         }
                     }
-                    FrameType::Hello => {
+                    FrameType::Hello2 => {
                         let paired = db::paired_hub(&state.db.lock().unwrap())?;
                         let Some((hub_id, hub_pub)) = paired else {
                             bail!("HELLO from an unpaired hub");
                         };
-                        if handshake::hello_node_id(&frame).ok() != Some(hub_id as u16) {
+                        if handshake2::hello_node_id(&frame).ok() != Some(hub_id as u16) {
                             bail!("HELLO with wrong hub id");
                         }
                         if !state.take_sig_budget(mono_now()) {
                             bail!("signature budget used up");
                         }
                         let (rand, epoch) = hs_random()?;
-                        // CRYPTO-REVIEW: verifies the hub's signature with the pinned key.
+                        // CRYPTO-REVIEW: verifies the hub's hybrid signature with the pinned key.
                         let ack = peer
-                            .on_hello(&frame, &hub_pub, &state.identity, &rand, epoch, mono_now())
+                            .on_hello_v2(&frame, &hub_pub, &state.identity, &rand, epoch, mono_now())
                             .map_err(|e| anyhow::anyhow!("hello: {e}"))?;
                         proven = true;
                         slots.mark_proven(conn_id);
@@ -285,33 +288,36 @@ async fn flush(
     write_frame(wr, &frame).await
 }
 
-/// CRYPTO-REVIEW: hub pairing. A hub is only pinned after a person approved
-/// its fingerprint in the app.
+/// CRYPTO-REVIEW: hub pairing (v2). A hub is only pinned after a person
+/// approved its fingerprint (KeyId) in the app. Phase 3 replaces this with the
+/// SPAKE2 code flow.
 fn on_pair_request(state: &AppState, frame: &[u8]) -> Result<Option<Vec<u8>>> {
-    let hub_pub =
-        pairing::parse_pair_request(frame).map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
+    let req =
+        pairing2::parse_pair_request(frame).map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
+    let hub_pub = req.device_pub;
+    let kid = identity2::key_id(&hub_pub);
     let conn = state.db.lock().unwrap();
     if let Some((id, pinned)) = db::paired_hub(&conn)?
-        && pinned == hub_pub
+        && *pinned == hub_pub
     {
         // Already paired; our earlier accept must have been lost. Send it again.
         return Ok(Some(
-            pairing::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
+            pairing2::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
         ));
     }
     let approved = *state.approved_hub.lock().unwrap();
-    if approved == Some(hub_pub) {
+    if approved == Some(kid) {
         let id = db::pair_hub(&conn, &hub_pub, unix_now())?;
         *state.approved_hub.lock().unwrap() = None;
-        info!("hub {} paired", uplink::fingerprint_hex(&hub_pub));
+        info!("hub {} paired", uplink::v2::fingerprint(&hub_pub));
         return Ok(Some(
-            pairing::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
+            pairing2::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
         ));
     }
     state.add_pending(PendingPair {
         kind: PairKind::Hub,
-        public_key: uplink::key_to_hex(&hub_pub),
-        fingerprint: uplink::fingerprint_hex(&hub_pub),
+        public_key: hex::encode(kid),
+        fingerprint: uplink::v2::fingerprint(&hub_pub),
         transport: None,
         seen_at: unix_now(),
     });
@@ -383,8 +389,8 @@ fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crypto_sharecrate::crypto::identity::Identity;
-    use crypto_sharecrate::node::{NodeCore, Pairing};
+    use crypto_sharecrate::crypto::v2::identity::HybridIdentity;
+    use crypto_sharecrate::crypto::v2::link::{LinkCore, LinkPairing};
     use tokio::io::AsyncReadExt;
 
     async fn start(state: Arc<AppState>) -> SocketAddr {
@@ -404,7 +410,7 @@ mod tests {
     /// throwaway key (what an attacker can do), then sits idle.
     async fn junk(addr: SocketAddr, seed: u8) -> TcpStream {
         let mut s = TcpStream::connect(addr).await.unwrap();
-        let req = NodeCore::new(&[seed; 32], None).pair_request();
+        let req = LinkCore::new(&[seed; 32], None).pair_request(None);
         write_frame(&mut s, &req).await.unwrap();
         s
     }
@@ -448,23 +454,22 @@ mod tests {
     #[tokio::test]
     async fn proven_hub_is_never_evicted() {
         let st = state();
-        let pc_pub = st.identity.public_key();
+        let pc_pub = *st.identity.public_key();
         let hub_seed = [7u8; 32];
-        let hub_pub = Identity::from_seed(&hub_seed).public_key();
+        let hub_pub = *HybridIdentity::from_seed(&hub_seed).public_key();
         db::pair_hub(&st.db.lock().unwrap(), &hub_pub, 0).unwrap();
         let addr = start(st).await;
 
         // real hub: HELLO signed with its pinned key
         let mut hub = TcpStream::connect(addr).await.unwrap();
-        let mut core = NodeCore::new(
+        let mut core = LinkCore::new(
             &hub_seed,
-            Some(Pairing {
+            Some(LinkPairing {
                 node_id: 1,
                 peer_pub: pc_pub,
             }),
         );
-        let mut r = [0u8; 48];
-        uplink::getrandom(&mut r).unwrap();
+        let r = uplink::v2::hs_random().unwrap();
         write_frame(&mut hub, &core.start_handshake(&r, 0).unwrap())
             .await
             .unwrap();

@@ -167,7 +167,11 @@ pub fn key_id(public: &HybridPublic) -> KeyId {
 /// The first 64 bits of the [`KeyId`] as `AB12-CD34-EF56-7890`, for people
 /// comparing by eye. It is never used as an identifier in the protocol.
 pub fn fingerprint_str(public: &HybridPublic) -> [u8; 19] {
-    let id = key_id(public);
+    fingerprint_of_key_id(&key_id(public))
+}
+
+/// Same fingerprint, for when only the [`KeyId`] is at hand.
+pub fn fingerprint_of_key_id(id: &KeyId) -> [u8; 19] {
     let mut fp = [0u8; 8];
     fp.copy_from_slice(&id[..8]);
     format_fingerprint(&fp)

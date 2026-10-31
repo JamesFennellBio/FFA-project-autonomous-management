@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use crypto_sharecrate::crypto::v2::identity::HybridPublic;
 use crypto_sharecrate::packet::ChannelKind;
 use rusqlite::{Connection, OptionalExtension, params};
 use uplink::HubMsg;
@@ -43,8 +44,10 @@ pub fn kind_name(kind: i64) -> &'static str {
     }
 }
 
-/// CRYPTO-REVIEW: the pinned hub key, if a hub is paired.
-pub fn paired_hub(conn: &Connection) -> Result<Option<(i64, [u8; 32])>> {
+/// CRYPTO-REVIEW: the pinned hub hybrid key (Ed25519 + ML-DSA-65), if a hub is
+/// paired. A hub pinned before v2 (32-byte key) counts as unpaired, so it has
+/// to be approved again.
+pub fn paired_hub(conn: &Connection) -> Result<Option<(i64, Box<HybridPublic>)>> {
     let row: Option<(i64, String)> = conn
         .query_row(
             "SELECT id, public_key FROM hubs ORDER BY id LIMIT 1",
@@ -53,17 +56,20 @@ pub fn paired_hub(conn: &Connection) -> Result<Option<(i64, [u8; 32])>> {
         )
         .optional()?;
     Ok(match row {
-        Some((id, k)) => Some((id, uplink::key_from_hex(&k)?)),
+        Some((id, k)) => match uplink::v2::public_from_hex(&k) {
+            Ok(k) => Some((id, k)),
+            Err(_) => None,
+        },
         None => None,
     })
 }
 
 /// Pins a newly approved hub (replacing any old one: one hub per PC).
-pub fn pair_hub(conn: &Connection, key: &[u8; 32], now: i64) -> Result<i64> {
+pub fn pair_hub(conn: &Connection, key: &HybridPublic, now: i64) -> Result<i64> {
     conn.execute("DELETE FROM hubs", [])?;
     conn.execute(
         "INSERT INTO hubs (id, public_key, paired_at) VALUES (1, ?1, ?2)",
-        params![uplink::key_to_hex(key), now],
+        params![uplink::v2::public_to_hex(key), now],
     )?;
     Ok(1)
 }

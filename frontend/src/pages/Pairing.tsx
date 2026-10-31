@@ -15,9 +15,9 @@ export default function Pairing({ status, pending, refresh }: { status: Status |
         <h3>How to pair</h3>
         <ol className="steps">
           <li>
-            <b>Hub (once):</b> put this PC's public key (below) in the Pi's <code>hub.toml</code> as{" "}
-            <code>pc_public_key</code>, then start <code>hub-node</code>. It appears below; check that its fingerprint
-            matches <code>hub-node fingerprint</code>.
+            <b>Hub (once):</b> put this PC's key ID (below) in the Pi's <code>hub.toml</code> as{" "}
+            <code>pc_key_id</code>, then start <code>hub-node</code>. It appears below; check that its fingerprint
+            matches the "phones, PC" line of <code>hub-node fingerprint</code>.
           </li>
           <li>
             <b>Nodes:</b> once the node has started, press and hold its BOOT button for 3 seconds (not while plugging it
@@ -31,9 +31,9 @@ export default function Pairing({ status, pending, refresh }: { status: Status |
         </ol>
         {status && (
           <div className="pubkey">
-            <div className="muted small">This PC's public key (for hub.toml):</div>
-            <code className="fp">{status.pc_public_key}</code>
-            <button onClick={() => void navigator.clipboard.writeText(status.pc_public_key)}>Copy</button>
+            <div className="muted small">This PC's key ID (for hub.toml):</div>
+            <code className="fp">{status.pc_key_id}</code>
+            <button onClick={() => void navigator.clipboard.writeText(status.pc_key_id)}>Copy</button>
           </div>
         )}
         {status && (

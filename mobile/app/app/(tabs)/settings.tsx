@@ -83,7 +83,7 @@ export default function Settings() {
         <Card>
           <Title>Pair with a hub</Title>
           <Body small muted>
-            The phone must be on the same Wi-Fi as the hub. Enter the hub's IP address (the port defaults to 7301).
+            The phone must be on the same Wi-Fi as the hub. Enter the hub's IP address (the port defaults to 7302).
           </Body>
           <Field
             label="Hub address"
@@ -93,7 +93,7 @@ export default function Settings() {
             keyboardType="numbers-and-punctuation"
           />
           <Field
-            label="Hub public key (optional, from `hub-node fingerprint`)"
+            label={'Hub key ID (optional, the "phones, PC" line of `hub-node fingerprint`)'}
             placeholder="64 hex characters"
             value={key}
             onChangeText={setKey}

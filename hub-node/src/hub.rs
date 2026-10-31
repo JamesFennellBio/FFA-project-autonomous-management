@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use crypto_sharecrate::crypto::identity::Identity;
+use crypto_sharecrate::crypto::v2::identity::{HybridIdentity, HybridPublic, KeyId};
 use crypto_sharecrate::crypto::{handshake, pairing, responder::PeerSessions};
 use crypto_sharecrate::frame::{FRAME_LEN, FrameType, peek_node_id};
 use crypto_sharecrate::packet::{ChannelKind, Packet};
@@ -26,8 +27,8 @@ pub enum Link {
     Udp(SocketAddr),
     #[cfg_attr(not(feature = "lora"), allow(dead_code))]
     Lora,
-    /// The phone app's UDP port.
-    App(SocketAddr),
+    /// A phone's TCP connection (id from `app_tcp`).
+    App(u64),
 }
 
 impl Link {
@@ -82,14 +83,37 @@ impl NodeEntry {
     }
 }
 
+/// A paired phone. Phones use the v2 hybrid protocol, so they pin a hybrid key.
+struct PhoneEntry {
+    /// CRYPTO-REVIEW: pinned Ed25519 + ML-DSA-65 key from pairing.
+    public_key: Box<HybridPublic>,
+    key_id: KeyId,
+    sessions: PeerSessions,
+    /// Monotonic times of recent HELLO2s (rate limit).
+    recent_hellos: VecDeque<u64>,
+}
+
+impl PhoneEntry {
+    fn new(public_key: Box<HybridPublic>) -> Self {
+        Self {
+            key_id: crypto_sharecrate::crypto::v2::identity::key_id(&public_key),
+            public_key,
+            sessions: PeerSessions::new(),
+            recent_hellos: VecDeque::new(),
+        }
+    }
+}
+
 /// Saved in `paired.json` as soon as anything changes. Pairings are too
 /// important to wait for the daily flush.
 #[derive(Serialize, Deserialize, Default)]
 struct PairedFile {
     nodes: Vec<(u16, String)>,
     approved: Vec<(u16, String)>,
+    /// Full hybrid public keys (hex).
     #[serde(default)]
     phones: Vec<(u16, String)>,
+    /// Key IDs (hex).
     #[serde(default)]
     approved_phones: Vec<(u16, String)>,
 }
@@ -154,14 +178,19 @@ impl Live {
 }
 
 pub struct Hub {
+    /// CRYPTO-REVIEW: v1 Ed25519 identity, for the nodes' radio links.
     identity: Identity,
+    /// CRYPTO-REVIEW: v2 hybrid identity from the same seed, for phones and
+    /// the PC (the PC link builds its own copy in pc_link).
+    pq_identity: HybridIdentity,
     nodes: HashMap<u16, NodeEntry>,
-    phones: HashMap<u16, NodeEntry>,
+    phones: HashMap<u16, PhoneEntry>,
     /// CRYPTO-REVIEW: keys a person approved in the app, waiting for the
     /// device's next PAIR_REQUEST. Nodes and phones are kept apart, so an
     /// approved node key can never pair on the phone port or the other way round.
     approved: HashMap<[u8; 32], u16>,
-    approved_phones: HashMap<[u8; 32], u16>,
+    /// Phones are approved by KeyId (the hash of their hybrid key).
+    approved_phones: HashMap<KeyId, u16>,
     last_pair_forward: HashMap<[u8; 32], i64>,
     last_any_pair_forward: i64,
     /// (second, signature checks done in that second)
@@ -210,6 +239,7 @@ impl Hub {
     pub fn new(seed: &[u8; 32], data_dir: Option<&Path>) -> Result<Self> {
         let mut hub = Self {
             identity: Identity::from_seed(seed),
+            pq_identity: HybridIdentity::from_seed(seed),
             nodes: HashMap::new(),
             phones: HashMap::new(),
             approved: HashMap::new(),
@@ -234,8 +264,15 @@ impl Hub {
                 hub.approved.insert(uplink::key_from_hex(&k)?, id);
             }
             for (id, k) in f.phones {
-                hub.phones
-                    .insert(id, NodeEntry::new(uplink::key_from_hex(&k)?));
+                match uplink::v2::public_from_hex(&k) {
+                    Ok(pk) => {
+                        hub.phones.insert(id, PhoneEntry::new(pk));
+                    }
+                    // A phone paired before v2: it has to pair again.
+                    Err(_) => {
+                        warn!("phone {id} was paired before v2; pair it again from the desktop app")
+                    }
+                }
             }
             for (id, k) in f.approved_phones {
                 hub.approved_phones.insert(uplink::key_from_hex(&k)?, id);
@@ -257,6 +294,11 @@ impl Hub {
 
     pub fn public_key(&self) -> [u8; 32] {
         self.identity.public_key()
+    }
+
+    /// The v2 key phones and the PC pin.
+    pub fn pq_key_id(&self) -> KeyId {
+        self.pq_identity.key_id()
     }
 
     /// Fills the phone app's view from the store after a restart.
@@ -307,7 +349,11 @@ impl Hub {
         let f = PairedFile {
             nodes: list(&self.nodes),
             approved: approved(&self.approved),
-            phones: list(&self.phones),
+            phones: self
+                .phones
+                .iter()
+                .map(|(id, p)| (*id, uplink::v2::public_to_hex(&p.public_key)))
+                .collect(),
             approved_phones: approved(&self.approved_phones),
         };
         let tmp = p.with_extension("json.tmp");
@@ -353,9 +399,9 @@ impl Hub {
                 if !self.take_sig_budget(mono) {
                     anyhow::bail!("signature budget used up; pair request dropped");
                 }
-                self.on_pair_request(frame, link, unix, DeviceKind::Node, out)?
+                self.on_pair_request(frame, link, unix, out)?
             }
-            FrameType::Hello => self.on_hello(DeviceKind::Node, frame, link, mono, out)?,
+            FrameType::Hello => self.on_hello(frame, link, mono, out)?,
             t if t.is_encrypted() && frame.len() == FRAME_LEN => {
                 let node_id = peek_node_id(frame).unwrap_or(0);
                 let node = self
@@ -390,29 +436,19 @@ impl Hub {
         Ok(())
     }
 
-    /// CRYPTO-REVIEW: HELLO from a paired node or phone. The signature is
-    /// checked with the pinned key; the new session waits as pending until
-    /// key confirmation.
-    fn on_hello(
-        &mut self,
-        kind: DeviceKind,
-        frame: &[u8],
-        link: Link,
-        mono: u64,
-        out: &mut Output,
-    ) -> Result<()> {
+    /// CRYPTO-REVIEW: HELLO from a paired node. The signature is checked with
+    /// the pinned key; the new session waits as pending until key confirmation.
+    /// (Phones use the v2 [`Hub::on_phone_hello`].)
+    fn on_hello(&mut self, frame: &[u8], link: Link, mono: u64, out: &mut Output) -> Result<()> {
         let id = handshake::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
-        let what = kind_name(kind);
+        let what = "node";
         // Cheap checks first: unknown device, per-device rate, global budget.
         // The per-device window only counts HELLOs that verified (below),
         // so forged HELLOs can't use up a real device's allowance (FYEO
         // scan 2). Forged ones still cost the global budget, which is the
         // cap on how much CPU an attacker can burn.
-        let peers = match kind {
-            DeviceKind::Node => &mut self.nodes,
-            DeviceKind::Phone => &mut self.phones,
-        };
-        let peer = peers
+        let peer = self
+            .nodes
             .get_mut(&id)
             .ok_or_else(|| anyhow::anyhow!("HELLO from unknown {what} {id}"))?;
         while peer
@@ -429,11 +465,7 @@ impl Hub {
             anyhow::bail!("signature budget used up; HELLO dropped");
         }
         let identity = &self.identity;
-        let peer = match kind {
-            DeviceKind::Node => self.nodes.get_mut(&id),
-            DeviceKind::Phone => self.phones.get_mut(&id),
-        }
-        .expect("checked above");
+        let peer = self.nodes.get_mut(&id).expect("checked above");
         let (rand, epoch) = hs_random()?;
         let ack = peer
             .sessions
@@ -444,23 +476,20 @@ impl Hub {
         Ok(())
     }
 
-    /// CRYPTO-REVIEW: hub side of pairing for nodes and phones; see
-    /// crypto::pairing for the trust model. Both need a person's approval
-    /// in the desktop app first.
+    /// CRYPTO-REVIEW: hub side of pairing for nodes; see crypto::pairing for
+    /// the trust model. Needs a person's approval in the desktop app first.
+    /// (Phones use the v2 [`Hub::on_phone_pair_request`].)
     fn on_pair_request(
         &mut self,
         frame: &[u8],
         link: Link,
         unix: i64,
-        kind: DeviceKind,
         out: &mut Output,
     ) -> Result<()> {
+        let kind = DeviceKind::Node;
         let pk =
             pairing::parse_pair_request(frame).map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
-        let (peers, approved) = match kind {
-            DeviceKind::Node => (&mut self.nodes, &mut self.approved),
-            DeviceKind::Phone => (&mut self.phones, &mut self.approved_phones),
-        };
+        let (peers, approved) = (&mut self.nodes, &mut self.approved);
         if let Some((id, _)) = peers.iter().find(|(_, n)| n.public_key == pk) {
             // Already paired; our accept was probably lost. Send it again.
             out.frames.push((
@@ -483,15 +512,39 @@ impl Hub {
                 .push((link, pairing::pair_accept(&self.identity, &pk, id).to_vec()));
             return Ok(());
         }
-        if kind == DeviceKind::Node {
-            self.show_pair_request(&pk, link.transport(), unix);
-        }
-        // Rate limits (findings 02/08): per key, overall, and a cap on how
-        // many keys we track. Requests that don't fit are just dropped; the
-        // device keeps asking every few seconds while its pairing window is open.
+        self.show_pair_request(&pk, link.transport(), unix);
+        self.forward_pair_request(
+            pk,
+            uplink::key_to_hex(&pk),
+            uplink::fingerprint_hex(&pk),
+            link.transport(),
+            kind,
+            unix,
+            out,
+        );
+        Ok(())
+    }
+
+    /// Tells the PC (live only, never stored) that a device is asking to pair.
+    /// `rate_key` is the node key or the phone's KeyId.
+    ///
+    /// Rate limits (findings 02/08): per key, overall, and a cap on how many
+    /// keys we track. Requests that don't fit are just dropped; the device
+    /// keeps asking every few seconds while its pairing window is open.
+    #[allow(clippy::too_many_arguments)]
+    fn forward_pair_request(
+        &mut self,
+        rate_key: [u8; 32],
+        public_key: String,
+        fingerprint: String,
+        transport: Transport,
+        kind: DeviceKind,
+        unix: i64,
+        out: &mut Output,
+    ) {
         let due = self
             .last_pair_forward
-            .get(&pk)
+            .get(&rate_key)
             .is_none_or(|last| unix.saturating_sub(*last) >= PAIR_FORWARD_EVERY)
             && unix.saturating_sub(self.last_any_pair_forward) >= PAIR_FORWARD_MIN_GAP;
         if self.last_pair_forward.len() >= MAX_PAIR_KEYS_TRACKED {
@@ -499,17 +552,16 @@ impl Hub {
                 .retain(|_, t| unix.saturating_sub(*t) < PAIR_FORWARD_EVERY);
         }
         if due && self.last_pair_forward.len() < MAX_PAIR_KEYS_TRACKED {
-            self.last_pair_forward.insert(pk, unix);
+            self.last_pair_forward.insert(rate_key, unix);
             self.last_any_pair_forward = unix;
             out.live.push(HubMsg::PairRequest {
-                public_key: uplink::key_to_hex(&pk),
-                fingerprint: uplink::fingerprint_hex(&pk),
-                transport: link.transport(),
+                public_key,
+                fingerprint,
+                transport,
                 kind,
                 ts: unix,
             });
         }
-        Ok(())
     }
 
     /// Remembers a waiting node so the phone app can list it (capped and
@@ -654,20 +706,34 @@ impl Hub {
             } => match uplink::key_from_hex(&public_key) {
                 Ok(pk) => {
                     let what = kind_name(kind);
-                    let (peers, approved) = match kind {
-                        DeviceKind::Node => (&self.nodes, &mut self.approved),
-                        DeviceKind::Phone => (&self.phones, &mut self.approved_phones),
-                    };
                     // CRYPTO-REVIEW: never silently re-point an id at a new
-                    // key, or one key at two ids (findings 22/25).
-                    let conflict = match peers.get(&node_id) {
-                        Some(n) if n.public_key != pk => Some(format!(
-                            "{what} id {node_id} is already paired to another device"
-                        )),
-                        _ => peers
-                            .iter()
-                            .find(|(id, n)| n.public_key == pk && **id != node_id)
-                            .map(|(id, _)| format!("this device is already paired as {what} {id}")),
+                    // key, or one key at two ids (findings 22/25). For phones
+                    // `pk` is the KeyId of their hybrid key.
+                    let conflict = match kind {
+                        DeviceKind::Node => match self.nodes.get(&node_id) {
+                            Some(n) if n.public_key != pk => Some(format!(
+                                "{what} id {node_id} is already paired to another device"
+                            )),
+                            _ => self
+                                .nodes
+                                .iter()
+                                .find(|(id, n)| n.public_key == pk && **id != node_id)
+                                .map(|(id, _)| {
+                                    format!("this device is already paired as {what} {id}")
+                                }),
+                        },
+                        DeviceKind::Phone => match self.phones.get(&node_id) {
+                            Some(p) if p.key_id != pk => Some(format!(
+                                "{what} id {node_id} is already paired to another device"
+                            )),
+                            _ => self
+                                .phones
+                                .iter()
+                                .find(|(id, p)| p.key_id == pk && **id != node_id)
+                                .map(|(id, _)| {
+                                    format!("this device is already paired as {what} {id}")
+                                }),
+                        },
                     };
                     if let Some(reason) = conflict {
                         warn!("refusing approval: {reason}");
@@ -679,6 +745,10 @@ impl Hub {
                         });
                         return out;
                     }
+                    let approved = match kind {
+                        DeviceKind::Node => &mut self.approved,
+                        DeviceKind::Phone => &mut self.approved_phones,
+                    };
                     approved.retain(|_, id| *id != node_id);
                     approved.insert(pk, node_id);
                     if let Err(e) = self.save() {

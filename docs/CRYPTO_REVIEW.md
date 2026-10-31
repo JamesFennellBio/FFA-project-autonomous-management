@@ -34,7 +34,7 @@
 - Pinned keys (findings 03/17/12):
   - `FARMLAB_HUB_KEY` on nodes → only that hub (`NodeCore::with_expected_peer`, `WrongPeer`)
   - closes the trust-on-first-use race
-  - hub requires `pc_public_key` in hub.toml
+  - hub requires `pc_key_id` (the PC's v2 KeyId) in hub.toml
   - saved pairing for a different key → dropped, re-pair with the pinned peer
 
 ## Session handshake (`crypto/handshake.rs`)
@@ -66,15 +66,19 @@
 - Replay state updates only after the tag verifies
 
 ## Phone app (`mobile/core`, `hub-node/src/hub/app.rs`)
-- Phone side in Rust (uniffi from React Native), uses `NodeCore` from crypto-sharecrate
-- Same signed PAIR_REQUEST, signed X25519 HELLO, HKDF, 10 msg / 1 h rekey
+- Phone side in Rust (uniffi from React Native), uses `LinkCore` (v2) from crypto-sharecrate
+- v2 hybrid: PAIR_REQUEST2, HELLO2 (Ed25519 + ML-DSA-65, X25519 + ML-KEM-768), HKDF, 1000 msg / 1 h rekey
+- Transport: TCP 7302, `u16 length | frame` like hub→PC (handshake frames are ~4.6 KB, too big for one UDP datagram)
+  - `hub-node/src/app_tcp.rs`: max 16 connections (oldest closed when full), 120 s idle timeout, `MAX_TCP_FRAME` cap
+  - only v2 frames accepted on the phone port; v1 PAIR_REQUEST / HELLO → dropped (no downgrade)
 - JavaScript only sees JSON
 - Frames: one `FrameType::Uplink` per request / reply (same sealing as hub→PC)
-  - max 1200 bytes JSON → no IP fragmentation
+  - max 4096 bytes JSON per request / reply
   - one request → exactly one reply
   - phone counts the hub's replies → rekeys before the hub runs out
-- Separate trust lists: `phones` / `approved_phones` in `paired.json`, phone port only
+- Separate trust lists: `phones` (full hybrid keys) / `approved_phones` (KeyIds) in `paired.json`, phone port only
   - node key can't open a session on the phone port, phone key can't on the node port
+  - phones paired before v2 are dropped on load and must pair again
 - Paired phone can:
   - read values, history, alerts
   - set outputs (hub checks the channel was announced as an output)
@@ -85,13 +89,16 @@
   - fixed condition / action types, `deny_unknown_fields`
   - limits: size, depth 4, 16 conditions, 8 actions per list
   - every target a paired node, every "set" an announced output
-- Without a pinned hub key → trust-on-first-use (Settings has optional hub key → `WrongPeer` otherwise)
+- Without a pinned hub key → trust-on-first-use (Settings has optional hub key ID → `WrongPeer` otherwise; Phase 3's QR code always pins it)
 - Phone seed: OS RNG in Rust → JS once → `expo-secure-store`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Keychain / Keystore, not backed up)
   - sits in JS memory while the app runs
 - Rate limits: shares hub's 50/s signature budget; 5 verified HELLOs / 10 s per phone; requests need a valid session
 
 ## v2 hybrid post-quantum protocol (`crypto/v2/`, feature `pq`)
-This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on v1, because their 64/128-byte frames can't carry post-quantum keys. The code is in the crate, but the links don't use it yet; Phase 2 of the v2 rewrite wires it in.
+This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on v1, because their 64/128-byte frames can't carry post-quantum keys. Both links use it (hub `pc_link.rs` / `hub/app.rs`, `pc-daemon/src/hub_link.rs`, `mobile/core`); everything except the node firmware builds crypto-sharecrate with `pq`.
+
+- **Identifiers:** pending pairing lists, approvals (`PcMsg::ApprovePair`), the daemon's `phones` table and `hub.toml` (`pc_key_id`) use the 32-byte KeyId. Full hybrid keys are kept only where signatures are verified: the hub's `paired.json` phones, the daemon's `hubs` row, `pc_pairing.json`, and the phone's saved pairing. A v1 entry in any of these doesn't load, so that peer pairs again.
+- **Hub keys:** one seed, two identities. v1 Ed25519 (`Identity::from_seed`) for nodes, v2 hybrid (HKDF-derived, so independent) for the PC and phones. `hub-node fingerprint` prints both.
 
 - **Identity** (`v2/identity.rs`):
   - One 32-byte seed. HKDF-SHA256 (salt `FFA-v2-identity`) derives an Ed25519 seed (`FFA-v2 ed25519`) and an ML-DSA-65 seed ξ (`FFA-v2 ml-dsa-65`). The hub's BIP39 phrase therefore restores both keys.
@@ -125,6 +132,7 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 - **Libraries:** RustCrypto `ml-dsa` 0.1.1 and `ml-kem` 0.3.3, pinned exactly, `no_std`, with the `zeroize` feature on. `hmac` 0.12. All are optional, behind `pq`, so the firmware never builds them.
 
 ## Known weaknesses
+- Phone port (TCP 7302) closes the oldest connection when 16 are open, so a device on the LAN can keep evicting real phones (denial of service only: no keys or data exposed; the phone reconnects on its next request)
 - Node pairing without `FARMLAB_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
 - Keys at rest not encrypted:
   - node seed in plain flash at 0x9000
@@ -291,28 +299,33 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 | `database/schema.sql` | 20 | pinned Ed25519 key (hex) |
 | `database/schema.sql` | 32 | Ed25519 key (hex) the hub pins |
 | `hub-node/Cargo.toml` | 26 | seed phrase (BIP39) and key derivation for the hub identity. |
-| `hub-node/src/config.rs` | 21 | the PC daemon's public key (64 hex chars), shown in the |
-| `hub-node/src/hub.rs` | 64 | pinned Ed25519 key from pairing. |
-| `hub-node/src/hub.rs` | 160 | keys a person approved in the app, waiting for the |
-| `hub-node/src/hub.rs` | 186 | randomness for one handshake: 48 bytes (ephemeral key + |
-| `hub-node/src/hub.rs` | 393 | HELLO from a paired node or phone. The signature is |
-| `hub-node/src/hub.rs` | 447 | hub side of pairing for nodes and phones; see |
-| `hub-node/src/hub.rs` | 661 | never silently re-point an id at a new |
-| `hub-node/src/hub/app.rs` | 168 | same AEAD + replay checks as the PC uplink; |
-| `hub-node/src/hub/app.rs` | 318 | a phone can only approve a node that is |
-| `hub-node/src/main.rs` | 78 | the phrase is printed once and never saved. The |
-| `hub-node/src/pc_link.rs` | 29 | pinned PC daemon Ed25519 key. |
-| `hub-node/src/pc_link.rs` | 53 | `pc_key` is the PC daemon's public key from hub.toml. The |
-| `hub-node/src/pc_link.rs` | 82 | randomness for a handshake, from the OS RNG. |
+| `hub-node/src/config.rs` | 21 | the PC daemon's key ID (64 hex chars: SHA-256 of its |
+| `hub-node/src/hub.rs` | 65 | pinned Ed25519 key from pairing. |
+| `hub-node/src/hub.rs` | 88 | pinned Ed25519 + ML-DSA-65 key from pairing. |
+| `hub-node/src/hub.rs` | 181 | v1 Ed25519 identity, for the nodes' radio links. |
+| `hub-node/src/hub.rs` | 183 | v2 hybrid identity from the same seed, for phones and |
+| `hub-node/src/hub.rs` | 188 | keys a person approved in the app, waiting for the |
+| `hub-node/src/hub.rs` | 215 | randomness for one handshake: 48 bytes (ephemeral key + |
+| `hub-node/src/hub.rs` | 439 | HELLO from a paired node. The signature is checked with |
+| `hub-node/src/hub.rs` | 479 | hub side of pairing for nodes; see crypto::pairing for |
+| `hub-node/src/hub.rs` | 709 | never silently re-point an id at a new |
+| `hub-node/src/hub/app.rs` | 156 | only v2 frames are accepted on the phone port. v1 |
+| `hub-node/src/hub/app.rs` | 175 | same AEAD + replay checks as the PC uplink; |
+| `hub-node/src/hub/app.rs` | 207 | v2 pairing for phones. The phone's hybrid key is only |
+| `hub-node/src/hub/app.rs` | 255 | HELLO2 from a paired phone, checked against its pinned |
+| `hub-node/src/hub/app.rs` | 423 | a phone can only approve a node that is |
+| `hub-node/src/main.rs` | 79 | the phrase is printed once and never saved. The |
+| `hub-node/src/pc_link.rs` | 31 | the pinned PC daemon hybrid key (Ed25519 + ML-DSA-65, hex). |
+| `hub-node/src/pc_link.rs` | 62 | `pc_key` is the PC daemon's KeyId from hub.toml. The hub only |
 | `hub-node/src/seed.rs` | 1 | hub identity from a 24-word BIP39 seed phrase. |
 | `mobile/app/src/hub/context.tsx` | 9 | "seed" is this phone's long-term Ed25519 secret. |
 | `mobile/app/src/hub/native.ts` | 4 | all pairing, handshakes and encryption happen inside the |
-| `mobile/core/src/lib.rs` | 64 | the hub's Ed25519 key (hex), pinned from now on. |
-| `mobile/core/src/lib.rs` | 76 | 32 bytes from the phone's OS CSPRNG. The seed passes |
-| `mobile/core/src/lib.rs` | 125 | `expected_hub_key` (hex), if given, is the only hub |
-| `mobile/core/src/lib.rs` | 238 | sealed under the current session; this counts |
-| `mobile/core/src/lib.rs` | 273 | runs the signed X25519 handshake when there's no |
-| `mobile/core/src/lib.rs` | 332 | AEAD + replay check. Anything that fails is dropped. |
+| `mobile/core/src/lib.rs` | 70 | the hub's hybrid key (Ed25519 + ML-DSA-65, 3968 hex |
+| `mobile/core/src/lib.rs` | 100 | 32 bytes from the phone's OS CSPRNG. The seed passes |
+| `mobile/core/src/lib.rs` | 150 | `expected_hub_key` (the hub's key ID or full key, hex), |
+| `mobile/core/src/lib.rs` | 259 | sealed under the current session; this counts |
+| `mobile/core/src/lib.rs` | 329 | runs the v2 hybrid handshake when there's no session or |
+| `mobile/core/src/lib.rs` | 385 | AEAD + replay check. Anything that fails is dropped. |
 | `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
 | `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
@@ -321,18 +334,20 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 | `pc-daemon/src/api/mod.rs` | 133 | only keys that are in the pending list (they sent a signed |
 | `pc-daemon/src/auth.rs` | 18 | 256-bit random token from the OS RNG, stored with mode 0600. |
 | `pc-daemon/src/auth.rs` | 33 | constant-time compare, so response timing doesn't leak how |
-| `pc-daemon/src/db.rs` | 46 | the pinned hub key, if a hub is paired. |
-| `pc-daemon/src/hub_link.rs` | 145 | 48 random bytes for one handshake (ephemeral key + nonce) |
-| `pc-daemon/src/hub_link.rs` | 209 | verifies the hub's signature with the pinned key. |
-| `pc-daemon/src/hub_link.rs` | 288 | hub pairing. A hub is only pinned after a person approved |
-| `pc-daemon/src/main.rs` | 61 | the PC's long-term Ed25519 identity (the hub pins it at pairing). |
-| `pc-daemon/src/state.rs` | 49 | the PC daemon's long-term signing key. |
-| `pc-daemon/src/state.rs` | 54 | hub key a person approved in the app; it's pinned once |
-| `uplink/src/lib.rs` | 261 | seal a JSON value as an Uplink frame under the session. |
-| `uplink/src/lib.rs` | 272 | open an Uplink frame. `open` is either `Session::open` or |
-| `uplink/src/lib.rs` | 319 | used for the PC daemon's identity seed. The OS RNG fills |
-| `uplink/src/lib.rs` | 352 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
+| `pc-daemon/src/db.rs` | 47 | the pinned hub hybrid key (Ed25519 + ML-DSA-65), if a hub is |
+| `pc-daemon/src/hub_link.rs` | 148 | random bytes for one v2 handshake plus 4 for the epoch id, |
+| `pc-daemon/src/hub_link.rs` | 187 | only v2 frames on the hub port. A v1 |
+| `pc-daemon/src/hub_link.rs` | 212 | verifies the hub's hybrid signature with the pinned key. |
+| `pc-daemon/src/hub_link.rs` | 291 | hub pairing (v2). A hub is only pinned after a person |
+| `pc-daemon/src/main.rs` | 61 | the PC's long-term identity seed. It derives the hybrid |
+| `pc-daemon/src/state.rs` | 49 | the PC daemon's long-term hybrid signing key |
+| `pc-daemon/src/state.rs` | 55 | KeyId of the hub a person approved in the app; its key |
+| `uplink/src/lib.rs` | 271 | seal a JSON value as an Uplink frame under the session. |
+| `uplink/src/lib.rs` | 282 | open an Uplink frame. `open` is either `Session::open` or |
+| `uplink/src/lib.rs` | 347 | randomness for one side of a v2 handshake, from the OS RNG. |
+| `uplink/src/lib.rs` | 375 | used for the PC daemon's identity seed. The OS RNG fills |
+| `uplink/src/lib.rs` | 408 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
-_132 tagged locations._
+_139 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

@@ -2,8 +2,8 @@
 //! end-to-end test, and handy for poking at the hub from a laptop.
 //!
 //! ```text
-//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 pair
-//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7301 ask '{"type":"channels"}'
+//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 pair
+//! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 ask '{"type":"channels"}'
 //! ```
 
 use std::path::PathBuf;
@@ -15,13 +15,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 struct Args {
-    #[arg(long, default_value = "127.0.0.1:7301")]
+    #[arg(long, default_value = "127.0.0.1:7302")]
     hub: String,
     /// Where this fake phone keeps its identity and pairing (like the app's
     /// secure storage). Contains a private key: keep it to test machines.
     #[arg(long, default_value = "phone-state.json")]
     state: PathBuf,
-    /// Only pair with this hub key (hex).
+    /// Only pair with this hub (its key ID from `hub-node fingerprint`, or full key, hex).
     #[arg(long)]
     hub_key: Option<String>,
     #[command(subcommand)]
@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
             println!(
                 "Paired as phone {} with hub {}",
                 p.phone_id,
-                uplink::fingerprint_hex(&uplink::key_from_hex(&p.hub_public_key)?)
+                farmlab_mobile_core::fingerprint_of_key(p.hub_public_key.clone())?
             );
             st.phone_id = Some(p.phone_id);
             st.hub_public_key = Some(p.hub_public_key);

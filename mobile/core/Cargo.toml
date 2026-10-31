@@ -2,7 +2,7 @@
 name = "farmlab-mobile-core"
 version.workspace = true
 edition.workspace = true
-description = "Phone side of the hub link (pairing, handshake, encrypted requests over UDP), called from the React Native app through uniffi"
+description = "Phone side of the hub link (pairing, v2 hybrid handshake, encrypted requests over TCP), called from the React Native app through uniffi"
 
 [lib]
 name = "farmlab_mobile_core"
@@ -22,3 +22,4 @@ uniffi = { version = "=0.31.2", features = ["tokio"] }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
+hex.workspace = true

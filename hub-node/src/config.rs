@@ -13,15 +13,19 @@ pub struct Config {
     /// Where Wi-Fi nodes send their UDP frames.
     #[serde(default = "default_udp")]
     pub udp_listen: String,
-    /// Where the phone app sends its UDP frames.
+    /// Where the phone app connects (TCP).
     #[serde(default = "default_app")]
     pub app_listen: String,
     /// The PC daemon (`pc-daemon --hub-listen`), e.g. "192.168.1.50:7400".
     pub pc_addr: String,
-    /// CRYPTO-REVIEW: the PC daemon's public key (64 hex chars), shown in the
-    /// app under Pairing and in pc-daemon's startup log. The hub refuses any
-    /// other PC (finding 12).
-    pub pc_public_key: String,
+    /// CRYPTO-REVIEW: the PC daemon's key ID (64 hex chars: SHA-256 of its
+    /// hybrid Ed25519 + ML-DSA-65 key), shown in the app under Pairing and in
+    /// pc-daemon's startup log. The hub refuses any other PC (finding 12).
+    #[serde(default)]
+    pub pc_key_id: String,
+    /// v1 setting, replaced by `pc_key_id`. Only read to explain the change.
+    #[serde(default)]
+    pub pc_public_key: Option<String>,
     /// How often the RAM database is written to the SD card.
     #[serde(default = "default_flush")]
     pub flush_interval_secs: u64,
@@ -110,8 +114,19 @@ impl Config {
     }
 
     pub fn pc_key(&self) -> Result<[u8; 32]> {
-        uplink::key_from_hex(self.pc_public_key.trim()).context(
-            "pc_public_key in hub.toml must be the PC's 64-character public key \
+        if self.pc_key_id.trim().is_empty() {
+            if self.pc_public_key.is_some() {
+                anyhow::bail!(
+                    "hub.toml has pc_public_key from before v2. Replace it with pc_key_id = \"<PC key ID>\" \
+                     (shown on the app's Pairing page and in pc-daemon's log)"
+                );
+            }
+            anyhow::bail!(
+                "hub.toml needs pc_key_id (shown on the app's Pairing page and in pc-daemon's log)"
+            );
+        }
+        uplink::key_from_hex(self.pc_key_id.trim()).context(
+            "pc_key_id in hub.toml must be the PC's 64-character key ID \
              (shown on the app's Pairing page and in pc-daemon's log)",
         )
     }
