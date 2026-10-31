@@ -105,7 +105,11 @@ pub fn PerfPicker() -> impl IntoView {
             </button>
         }
     };
-    let ram_gb = move || sys.get().map(|s| s.total_ram_mb as f64 / 1024.0);
+    let ram_gb = move || {
+        sys.get()
+            .filter(|s| s.total_ram_mb > 0)
+            .map(|s| s.total_ram_mb as f64 / 1024.0)
+    };
     view! {
         <div class="choices">
             {opt(Perf::Lite, "Lite", "Uses less than 3 GB of memory. Fewer animations and shorter charts. For older or busy computers.")}

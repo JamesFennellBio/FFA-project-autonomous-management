@@ -62,13 +62,24 @@ struct SystemInfo {
 
 #[tauri::command]
 fn system_info() -> SystemInfo {
-    let mut s = sysinfo::System::new();
-    s.refresh_memory();
     SystemInfo {
-        total_ram_mb: s.total_memory() / (1024 * 1024),
+        total_ram_mb: total_ram_mb(),
         cpus: std::thread::available_parallelism().map_or(1, |n| n.get()),
         os: std::env::consts::OS.into(),
     }
+}
+
+#[cfg(desktop)]
+fn total_ram_mb() -> u64 {
+    let mut s = sysinfo::System::new();
+    s.refresh_memory();
+    s.total_memory() / (1024 * 1024)
+}
+
+/// Phones: unknown (0); Settings then leaves the memory hint out.
+#[cfg(mobile)]
+fn total_ram_mb() -> u64 {
+    0
 }
 
 /// The prefs file, also readable before Tauri starts (for the Linux limits
