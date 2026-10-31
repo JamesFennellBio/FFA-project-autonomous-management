@@ -1,10 +1,12 @@
-//! The phone app's link to the hub (UDP port `uplink::app::APP_PORT`).
+//! The phone app's link to the hub (TCP port `uplink::app::APP_PORT`, see
+//! `app_tcp` for the sockets).
 //!
-//! A phone pairs and handshakes exactly like a node: the same signed
-//! PAIR_REQUEST and HELLO, approved in the desktop app, and new keys every 10
-//! messages or 1 hour. It just uses its own port and its own id range. After
-//! the handshake every request is one `Uplink` frame (ChaCha20-Poly1305 with
-//! JSON inside, at most `MAX_APP_PLAINTEXT` bytes) and gets exactly one reply.
+//! A phone pairs and handshakes with the v2 hybrid protocol: PAIR_REQUEST2
+//! (approved in the desktop app) and HELLO2 (Ed25519 + ML-DSA-65 signatures,
+//! X25519 + ML-KEM-768 keys), with new keys every 1000 messages or 1 hour. It
+//! has its own id range. After the handshake every request is one `Uplink`
+//! frame (ChaCha20-Poly1305 with JSON inside, at most `MAX_APP_PLAINTEXT`
+//! bytes) and gets exactly one reply.
 //!
 //! ```text
 //! phone -> hub   {"id": 7, "req": {"type": "channels", "offset": 0}}
@@ -82,8 +84,8 @@ enum Request {
     },
 }
 
-/// History points per reply. `[1700000000,21000],` is 19 bytes, so 48 fit.
-const MAX_POINTS: usize = 48;
+/// History points per reply. `[1700000000,21000],` is 19 bytes, so 180 fit.
+const MAX_POINTS: usize = 180;
 fn max_points() -> usize {
     MAX_POINTS
 }
@@ -122,19 +124,19 @@ fn kind_label(kind: Option<u8>) -> &'static str {
 }
 
 impl Hub {
-    /// Handles one datagram from the phone port.
+    /// Handles one frame from phone connection `conn`.
     pub fn on_app_frame(
         &mut self,
         frame: &[u8],
-        addr: SocketAddr,
+        conn: u64,
         mono: u64,
         unix: i64,
         store: &Store,
     ) -> Output {
         let mut out = Output::default();
-        if let Err(e) = self.on_app_frame_inner(frame, Link::App(addr), mono, unix, store, &mut out)
+        if let Err(e) = self.on_app_frame_inner(frame, Link::App(conn), mono, unix, store, &mut out)
         {
-            debug!("dropped phone frame from {addr}: {e:#}");
+            debug!("dropped frame from phone connection {conn}: {e:#}");
         }
         out
     }
@@ -148,18 +150,23 @@ impl Hub {
         store: &Store,
         out: &mut Output,
     ) -> Result<()> {
-        if frame.is_empty() || frame.len() > MAX_APP_FRAME {
+        if frame.is_empty() || frame.len() > uplink::MAX_TCP_FRAME {
             anyhow::bail!("bad length {}", frame.len());
         }
+        // CRYPTO-REVIEW: only v2 frames are accepted on the phone port. v1
+        // handshake and pairing frames fall through to "unexpected" (no downgrade).
         match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
-            FrameType::PairRequest => {
+            FrameType::PairRequest2 => {
                 if !self.take_sig_budget(mono) {
                     anyhow::bail!("signature budget used up; pair request dropped");
                 }
-                self.on_pair_request(frame, link, unix, DeviceKind::Phone, out)
+                self.on_phone_pair_request(frame, link, unix, out)
             }
-            FrameType::Hello => self.on_hello(DeviceKind::Phone, frame, link, mono, out),
+            FrameType::Hello2 => self.on_phone_hello(frame, link, mono, out),
             FrameType::Uplink => {
+                if frame.len() > MAX_APP_FRAME {
+                    anyhow::bail!("request frame of {} bytes is too large", frame.len());
+                }
                 let phone_id = peek_node_id(frame).unwrap_or(0);
                 let phone = self
                     .phones
@@ -197,6 +204,103 @@ impl Hub {
         }
     }
 
+    /// CRYPTO-REVIEW: v2 pairing for phones. The phone's hybrid key is only
+    /// pinned once a person approved its KeyId in the desktop app. (Phase 3
+    /// adds the QR-ticket path, `pairing::verify_ticket`.)
+    fn on_phone_pair_request(
+        &mut self,
+        frame: &[u8],
+        link: Link,
+        unix: i64,
+        out: &mut Output,
+    ) -> Result<()> {
+        use crypto_sharecrate::crypto::v2::{identity, pairing as pairing2};
+        let req = pairing2::parse_pair_request(frame)
+            .map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
+        let kid = identity::key_id(&req.device_pub);
+        if let Some((id, _)) = self.phones.iter().find(|(_, p)| p.key_id == kid) {
+            // Already paired; our accept was probably lost. Send it again.
+            out.frames.push((
+                link,
+                pairing2::pair_accept(&self.pq_identity, &req.device_pub, *id).to_vec(),
+            ));
+            return Ok(());
+        }
+        if let Some(id) = self.approved_phones.remove(&kid) {
+            info!(
+                "pairing phone {id} ({})",
+                uplink::v2::fingerprint(&req.device_pub)
+            );
+            self.phones
+                .insert(id, PhoneEntry::new(Box::new(req.device_pub)));
+            self.save()?;
+            out.frames.push((
+                link,
+                pairing2::pair_accept(&self.pq_identity, &req.device_pub, id).to_vec(),
+            ));
+            return Ok(());
+        }
+        self.forward_pair_request(
+            kid,
+            hex::encode(kid),
+            uplink::v2::fingerprint_of_key_id(&kid),
+            Transport::Wifi,
+            DeviceKind::Phone,
+            unix,
+            out,
+        );
+        Ok(())
+    }
+
+    /// CRYPTO-REVIEW: HELLO2 from a paired phone, checked against its pinned
+    /// hybrid key. Same rate limits as node HELLOs; the new session waits as
+    /// pending until key confirmation.
+    fn on_phone_hello(
+        &mut self,
+        frame: &[u8],
+        link: Link,
+        mono: u64,
+        out: &mut Output,
+    ) -> Result<()> {
+        use crypto_sharecrate::crypto::v2::handshake as handshake2;
+        let id = handshake2::hello_node_id(frame).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let phone = self
+            .phones
+            .get_mut(&id)
+            .ok_or_else(|| anyhow::anyhow!("HELLO2 from unknown phone {id}"))?;
+        while phone
+            .recent_hellos
+            .front()
+            .is_some_and(|t| mono.saturating_sub(*t) >= HELLO_WINDOW_SECS)
+        {
+            phone.recent_hellos.pop_front();
+        }
+        if phone.recent_hellos.len() >= HELLOS_PER_WINDOW {
+            anyhow::bail!("too many HELLO2s from phone {id}");
+        }
+        if !self.take_sig_budget(mono) {
+            anyhow::bail!("signature budget used up; HELLO2 dropped");
+        }
+        let mut e = [0u8; 4];
+        uplink::getrandom(&mut e)?;
+        let rand = uplink::v2::hs_random()?;
+        let phone = self.phones.get_mut(&id).expect("checked above");
+        let ack = phone
+            .sessions
+            .on_hello_v2(
+                frame,
+                &phone.public_key,
+                &self.pq_identity,
+                &rand,
+                u32::from_le_bytes(e),
+                mono,
+            )
+            .map_err(|e| anyhow::anyhow!("hello2 from phone {id}: {e}"))?;
+        phone.recent_hellos.push_back(mono);
+        out.frames.push((link, ack.to_vec()));
+        Ok(())
+    }
+
     fn handle(
         &mut self,
         phone_id: u16,
@@ -209,7 +313,8 @@ impl Hub {
         let db = |e: anyhow::Error| format!("hub database: {e:#}");
         Ok(match req {
             Request::Info => json!({
-                "hub_fingerprint": uplink::fingerprint_hex(&self.identity.public_key()),
+                // The v2 key the phone pinned, not the nodes' v1 key.
+                "hub_fingerprint": uplink::v2::fingerprint(self.pq_identity.public_key()),
                 "phone_id": phone_id,
                 "nodes": self.nodes.len(),
                 "recipes": self.recipes.list().len(),
@@ -460,7 +565,8 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crypto_sharecrate::node::{NodeCore, NodeEvent};
+    use crypto_sharecrate::crypto::v2::link::{LinkCore, LinkEvent};
+    use crypto_sharecrate::node::NodeCore;
     use crypto_sharecrate::packet::{ChannelInfo, Reading};
 
     fn rand48() -> [u8; 48] {
@@ -469,8 +575,9 @@ mod tests {
         r
     }
 
-    fn phone_link() -> SocketAddr {
-        "127.0.0.1:5555".parse().unwrap()
+    /// The test phone's connection id.
+    fn phone_link() -> u64 {
+        5
     }
 
     struct Rig {
@@ -478,7 +585,7 @@ mod tests {
         store: Store,
         _dir: tempfile::TempDir,
         node: NodeCore,
-        phone: NodeCore,
+        phone: LinkCore,
         req_id: u64,
     }
 
@@ -489,13 +596,16 @@ mod tests {
         let store = Store::open(&dir.path().join("hub.db")).unwrap();
         let mut hub = Hub::new(&[1u8; 32], None).unwrap();
         let mut node = NodeCore::new(&[2u8; 32], None);
-        let mut phone = NodeCore::new(&[3u8; 32], None);
+        let mut phone = LinkCore::new(&[3u8; 32], None);
         let udp = Link::Udp("127.0.0.1:9999".parse().unwrap());
 
-        for (core, kind) in [(&node, DeviceKind::Node), (&phone, DeviceKind::Phone)] {
+        for (key, kind) in [
+            (uplink::key_to_hex(&node.public_key()), DeviceKind::Node),
+            (hex::encode(phone.key_id()), DeviceKind::Phone),
+        ] {
             hub.on_pc(
                 PcMsg::ApprovePair {
-                    public_key: uplink::key_to_hex(&core.public_key()),
+                    public_key: key,
                     node_id: 1,
                     kind,
                 },
@@ -519,10 +629,10 @@ mod tests {
         ]);
         hub.on_frame(&node.seal(&announce, 0).unwrap(), udp, 0, 0);
 
-        let out = hub.on_app_frame(&phone.pair_request(), phone_link(), 0, 0, &store);
+        let out = hub.on_app_frame(&phone.pair_request(None), phone_link(), 0, 0, &store);
         assert!(matches!(
             phone.handle_frame(&out.frames[0].1, 0).unwrap(),
-            NodeEvent::Paired(_)
+            LinkEvent::Paired(_)
         ));
         Rig {
             hub,
@@ -539,7 +649,10 @@ mod tests {
         /// and returns the reply plus everything else the hub produced.
         fn ask(&mut self, req: Value) -> (Value, Output) {
             if self.phone.needs_handshake(1) {
-                let hello = self.phone.start_handshake(&rand48(), 1).unwrap();
+                let hello = self
+                    .phone
+                    .start_handshake(&uplink::v2::hs_random().unwrap(), 1)
+                    .unwrap();
                 let out = self
                     .hub
                     .on_app_frame(&hello, phone_link(), 1, 0, &self.store);
@@ -602,15 +715,24 @@ mod tests {
     }
 
     #[test]
+    fn info_reports_the_v2_key_the_phone_pinned() {
+        let mut r = rig();
+        let (v, _) = r.ask(json!({ "type": "info" }));
+        let pinned = r.phone.pairing().unwrap().peer_pub;
+        assert_eq!(v["ok"]["hub_fingerprint"], uplink::v2::fingerprint(&pinned));
+    }
+
+    #[test]
     fn many_requests_rekey_and_keep_working() {
         let mut r = rig();
-        for _ in 0..25 {
+        // v2 sessions allow 1000 frames per direction, so request 1001 rekeys.
+        for _ in 0..1001 {
             let (v, _) = r.ask(json!({ "type": "info" }));
             assert_eq!(v["ok"]["phone_id"], 1);
         }
         assert!(
-            r.phone.sessions_started() >= 3,
-            "new keys every 10 messages"
+            r.phone.sessions_started() >= 2,
+            "new keys every 1000 messages"
         );
     }
 
@@ -772,9 +894,14 @@ mod tests {
         ));
 
         // A phone asking to pair is never listed for other phones to approve.
-        let other_phone = NodeCore::new(&[8u8; 32], None);
-        r.hub
-            .on_app_frame(&other_phone.pair_request(), phone_link(), 1, 101, &r.store);
+        let other_phone = LinkCore::new(&[8u8; 32], None);
+        r.hub.on_app_frame(
+            &other_phone.pair_request(None),
+            phone_link(),
+            1,
+            101,
+            &r.store,
+        );
         let (v, _) = r.ask(json!({ "type": "pair_requests" }));
         assert_eq!(v["ok"]["requests"].as_array().unwrap().len(), 1);
     }
@@ -791,10 +918,10 @@ mod tests {
                 .is_empty()
         );
         // unpaired phone: its pair request goes to the PC as a phone, nothing comes back
-        let stranger = NodeCore::new(&[9u8; 32], None);
+        let stranger = LinkCore::new(&[9u8; 32], None);
         let out = r
             .hub
-            .on_app_frame(&stranger.pair_request(), phone_link(), 2, 200, &r.store);
+            .on_app_frame(&stranger.pair_request(None), phone_link(), 2, 200, &r.store);
         assert!(out.frames.is_empty());
         assert!(matches!(
             out.live[0],
@@ -807,7 +934,7 @@ mod tests {
 
     #[test]
     fn long_lists_are_paged() {
-        let items: Vec<String> = (0..200).map(|i| format!("item number {i:04}")).collect();
+        let items: Vec<String> = (0..600).map(|i| format!("item number {i:04}")).collect();
         let (first, next) = page(&items, 0);
         let next = next.expect("more pages");
         assert_eq!(first.len(), next);

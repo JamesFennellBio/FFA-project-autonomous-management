@@ -5,8 +5,11 @@
 //! - after that: `FrameType::Uplink` frames sealed with ChaCha20-Poly1305, whose
 //!   plaintext is a JSON [`HubBatch`] (hub -> PC) or [`PcBatch`] (PC -> hub)
 //!
-//! The hub is the initiator (it plays the "node" role toward the PC), so the
-//! same rekey rule applies: a new ECDH every 10 frames or 1 hour.
+//! The hub is the initiator (it plays the "node" role toward the PC). Since v2
+//! both links (hub <-> PC and phone <-> hub) use the hybrid post-quantum
+//! protocol (`crypto_sharecrate::crypto::v2`): HELLO2 / HELLO-ACK2 and
+//! PAIR_REQUEST2 / PAIR_ACCEPT2, then Uplink frames, with new keys every 1000
+//! frames or 1 hour.
 
 use anyhow::{Context, Result, bail};
 use crypto_sharecrate::crypto::session::Session;
@@ -40,16 +43,19 @@ pub enum DeviceKind {
     Phone,
 }
 
-/// The phone app's link to the hub (see hub-node/src/app.rs).
+/// The phone app's link to the hub (see hub-node/src/hub/app.rs).
+///
+/// Since v2 it's TCP with the same `u16 length | frame` framing as the PC link.
+/// Hybrid handshake frames are several KB, too big for one UDP datagram.
 pub mod app {
     use crypto_sharecrate::frame::{HEADER_LEN, TAG_LEN};
 
-    /// UDP port the hub listens on for phones.
-    pub const APP_PORT: u16 = 7301;
-    /// Largest JSON body in one phone <-> hub frame. Keeps every datagram
-    /// under a normal Wi-Fi MTU so it is never fragmented.
-    pub const MAX_APP_PLAINTEXT: usize = 1200;
-    /// Largest phone <-> hub datagram (header + body + tag).
+    /// TCP port the hub listens on for phones.
+    pub const APP_PORT: u16 = 7302;
+    /// Largest JSON body in one phone <-> hub request or reply.
+    pub const MAX_APP_PLAINTEXT: usize = 4096;
+    /// Largest encrypted phone <-> hub frame (header + body + tag). Pairing
+    /// and handshake frames are bigger; they're capped by `MAX_TCP_FRAME`.
     pub const MAX_APP_FRAME: usize = HEADER_LEN + MAX_APP_PLAINTEXT + TAG_LEN;
 }
 
@@ -242,8 +248,12 @@ pub async fn write_frame<W: AsyncWriteExt + Unpin>(w: &mut W, frame: &[u8]) -> R
     if frame.len() > MAX_TCP_FRAME {
         bail!("frame too large");
     }
-    w.write_u16(frame.len() as u16).await?;
-    w.write_all(frame).await?;
+    // One write, so the length and body go out together (two small writes
+    // can stall ~40 ms on Nagle + delayed ACK).
+    let mut buf = Vec::with_capacity(2 + frame.len());
+    buf.extend_from_slice(&(frame.len() as u16).to_be_bytes());
+    buf.extend_from_slice(frame);
+    w.write_all(&buf).await?;
     w.flush().await?;
     Ok(())
 }
@@ -294,6 +304,52 @@ pub fn key_from_hex(s: &str) -> Result<[u8; 32]> {
 pub fn fingerprint_hex(k: &[u8; 32]) -> String {
     let fp = crypto_sharecrate::crypto::identity::fingerprint_str(k);
     String::from_utf8_lossy(&fp).into_owned()
+}
+
+/// v2 hybrid keys (1984 bytes) as hex, for files that must keep the full key
+/// to verify signatures (pairings). Everywhere else uses the 32-byte KeyId.
+pub mod v2 {
+    use anyhow::Result;
+    use crypto_sharecrate::crypto::v2::identity::{self, HybridPublic, KeyId, PUBLIC_KEY_LEN};
+
+    pub fn public_to_hex(k: &HybridPublic) -> String {
+        hex::encode(k)
+    }
+
+    pub fn public_from_hex(s: &str) -> Result<Box<HybridPublic>> {
+        let v = hex::decode(s.trim())?;
+        if v.len() != PUBLIC_KEY_LEN {
+            anyhow::bail!(
+                "hybrid public key must be {PUBLIC_KEY_LEN} bytes, got {}",
+                v.len()
+            );
+        }
+        let mut k = Box::new([0u8; PUBLIC_KEY_LEN]);
+        k.copy_from_slice(&v);
+        Ok(k)
+    }
+
+    /// KeyId of a hybrid key, as 64 hex characters.
+    pub fn key_id_hex(k: &HybridPublic) -> String {
+        hex::encode(identity::key_id(k))
+    }
+
+    /// `AB12-CD34-EF56-7890` from a hybrid key.
+    pub fn fingerprint(k: &HybridPublic) -> String {
+        String::from_utf8_lossy(&identity::fingerprint_str(k)).into_owned()
+    }
+
+    /// The same fingerprint from a KeyId.
+    pub fn fingerprint_of_key_id(id: &KeyId) -> String {
+        String::from_utf8_lossy(&identity::fingerprint_of_key_id(id)).into_owned()
+    }
+
+    /// CRYPTO-REVIEW: randomness for one side of a v2 handshake, from the OS RNG.
+    pub fn hs_random() -> Result<crypto_sharecrate::crypto::v2::handshake::HandshakeRandom> {
+        let mut r = [0u8; 112];
+        super::getrandom(&mut r)?;
+        Ok(r)
+    }
 }
 
 pub fn unix_now() -> i64 {

@@ -96,12 +96,12 @@ async fn status(State(s): St) -> ApiResult {
     let paired = db::paired_hub(&s.db.lock().unwrap())?;
     let hub = s.hub.lock().unwrap();
     Ok(Json(json!({
-        "pc_fingerprint": uplink::fingerprint_hex(&s.identity.public_key()),
-        // Goes in hub.toml as pc_public_key.
-        "pc_public_key": uplink::key_to_hex(&s.identity.public_key()),
+        "pc_fingerprint": uplink::v2::fingerprint(s.identity.public_key()),
+        // Goes in hub.toml as pc_key_id.
+        "pc_key_id": hex::encode(s.identity.key_id()),
         "hub": {
             "paired": paired.is_some(),
-            "fingerprint": paired.map(|(_, k)| uplink::fingerprint_hex(&k)),
+            "fingerprint": paired.map(|(_, k)| uplink::v2::fingerprint(&k)),
             "connected": hub.connected,
             "last_seen": hub.last_seen,
             "backlog": hub.backlog,
@@ -244,7 +244,8 @@ async fn list_phones(State(s): St) -> ApiResult {
             let pk: String = r.get(1)?;
             Ok(json!({
                 "id": r.get::<_, i64>(0)?,
-                "fingerprint": uplink::key_from_hex(&pk).map(|k| uplink::fingerprint_hex(&k)).unwrap_or_default(),
+                // Phones are stored by KeyId (v2).
+                "fingerprint": uplink::key_from_hex(&pk).map(|k| uplink::v2::fingerprint_of_key_id(&k)).unwrap_or_default(),
                 "name": r.get::<_, String>(2)?,
                 "paired_at": r.get::<_, i64>(3)?,
             }))

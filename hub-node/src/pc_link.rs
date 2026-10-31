@@ -1,16 +1,18 @@
 //! Encrypted TCP uplink from the hub to the PC daemon.
 //!
-//! Toward the PC the hub plays the "node" role: it pairs (the PC user approves
-//! the hub's fingerprint), then runs the same signed-ECDH handshake every 10
-//! frames / 1 hour, using `NodeCore` from crypto-sharecrate.
+//! Toward the PC the hub plays the initiator: it pairs (the PC user approves
+//! the hub's fingerprint), then runs the v2 hybrid handshake (Ed25519 + ML-DSA-65
+//! signatures, X25519 + ML-KEM-768 keys) every 1000 frames / 1 hour, using
+//! `LinkCore` from crypto-sharecrate.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
+use crypto_sharecrate::crypto::v2::identity::KeyId;
+use crypto_sharecrate::crypto::v2::link::{LinkCore, LinkEvent, LinkPairing};
 use crypto_sharecrate::frame::FrameType;
-use crypto_sharecrate::node::{NodeCore, NodeEvent, Pairing};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -26,23 +28,30 @@ const HEARTBEAT_SECS: u64 = 30;
 #[derive(Serialize, Deserialize)]
 struct PcPairingFile {
     hub_id: u16,
-    /// CRYPTO-REVIEW: pinned PC daemon Ed25519 key.
+    /// CRYPTO-REVIEW: the pinned PC daemon hybrid key (Ed25519 + ML-DSA-65, hex).
     pc_public_key: String,
 }
 
-fn load_pairing(path: &PathBuf) -> Option<Pairing> {
+/// A v1 pc_pairing.json (32-byte key) doesn't load, so the hub pairs again.
+fn load_pairing(path: &PathBuf) -> Option<LinkPairing> {
     let s = std::fs::read_to_string(path).ok()?;
     let f: PcPairingFile = serde_json::from_str(&s).ok()?;
-    Some(Pairing {
-        node_id: f.hub_id,
-        peer_pub: uplink::key_from_hex(&f.pc_public_key).ok()?,
-    })
+    match uplink::v2::public_from_hex(&f.pc_public_key) {
+        Ok(k) => Some(LinkPairing {
+            node_id: f.hub_id,
+            peer_pub: *k,
+        }),
+        Err(_) => {
+            warn!("pc_pairing.json is from before v2; the hub will pair with the PC again");
+            None
+        }
+    }
 }
 
-fn save_pairing(path: &PathBuf, p: &Pairing) -> Result<()> {
+fn save_pairing(path: &PathBuf, p: &LinkPairing) -> Result<()> {
     let f = PcPairingFile {
         hub_id: p.node_id,
-        pc_public_key: uplink::key_to_hex(&p.peer_pub),
+        pc_public_key: uplink::v2::public_to_hex(&p.peer_pub),
     };
     std::fs::write(path, serde_json::to_vec_pretty(&f)?)?;
     Ok(())
@@ -50,20 +59,20 @@ fn save_pairing(path: &PathBuf, p: &Pairing) -> Result<()> {
 
 /// Keeps reconnecting to the PC for as long as the hub runs.
 ///
-/// CRYPTO-REVIEW: `pc_key` is the PC daemon's public key from hub.toml. The
-/// hub only pairs with (and only trusts) that key, so losing pc_pairing.json
-/// can't make it trust whoever answers first on pc_addr (finding 12).
+/// CRYPTO-REVIEW: `pc_key` is the PC daemon's KeyId from hub.toml. The hub only
+/// pairs with (and only trusts) that key, so losing pc_pairing.json can't make
+/// it trust whoever answers first on pc_addr (finding 12).
 pub async fn run(
     seed: [u8; 32],
     pc_addr: String,
-    pc_key: [u8; 32],
+    pc_key: KeyId,
     pairing_path: PathBuf,
     store: Arc<Mutex<Store>>,
     to_hub: mpsc::UnboundedSender<PcMsg>,
     mut live: mpsc::Receiver<HubMsg>,
 ) {
     loop {
-        let core = NodeCore::new(&seed, load_pairing(&pairing_path)).with_expected_peer(pc_key);
+        let core = LinkCore::new(&seed, load_pairing(&pairing_path)).with_expected_peer(pc_key);
         match TcpStream::connect(&pc_addr).await {
             Ok(stream) => {
                 info!("connected to PC daemon at {pc_addr}");
@@ -79,15 +88,8 @@ pub async fn run(
     }
 }
 
-/// CRYPTO-REVIEW: randomness for a handshake, from the OS RNG.
-fn hs_random() -> Result<[u8; 48]> {
-    let mut r = [0u8; 48];
-    uplink::getrandom(&mut r)?;
-    Ok(r)
-}
-
 async fn session(
-    mut core: NodeCore,
+    mut core: LinkCore,
     stream: TcpStream,
     pairing_path: &PathBuf,
     store: &Arc<Mutex<Store>>,
@@ -112,7 +114,7 @@ async fn session(
                         "not paired with the PC yet: approve hub {} in the app",
                         String::from_utf8_lossy(&core.fingerprint())
                     );
-                    write_frame(&mut wr, &core.pair_request()).await?;
+                    write_frame(&mut wr, &core.pair_request(None)).await?;
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -120,7 +122,7 @@ async fn session(
                     continue;
                 }
                 if core.needs_handshake(now) {
-                    let hello = core.start_handshake(&hs_random()?, now).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let hello = core.start_handshake(&uplink::v2::hs_random()?, now).map_err(|e| anyhow::anyhow!("{e}"))?;
                     write_frame(&mut wr, &hello).await?;
                     continue;
                 }
@@ -151,23 +153,23 @@ async fn session(
                 let frame = frame?;
                 let now = mono_now();
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
-                    FrameType::PairAccept | FrameType::HelloAck => {
+                    FrameType::PairAccept2 | FrameType::HelloAck2 => {
                         let event = core.handle_frame(&frame, now).map_err(|e| match e {
                             crypto_sharecrate::Error::WrongPeer => anyhow::anyhow!(
-                                "the PC at pc_addr answered with a key that is not pc_public_key in hub.toml; refusing to pair"
+                                "the PC at pc_addr answered with a key that is not pc_key_id in hub.toml; refusing to pair"
                             ),
                             e => anyhow::anyhow!("{e}"),
                         })?;
                         match event {
-                            NodeEvent::Paired(p) => {
+                            LinkEvent::Paired(p) => {
                                 save_pairing(pairing_path, &p)?;
                                 info!(
                                     "paired with PC {} as hub {}",
-                                    uplink::fingerprint_hex(&p.peer_pub),
+                                    uplink::v2::fingerprint(&p.peer_pub),
                                     p.node_id
                                 );
                             }
-                            NodeEvent::SessionUp { epoch } => {
+                            LinkEvent::SessionUp { epoch } => {
                                 tracing::debug!("PC session up, epoch {epoch:#x} (#{})", core.sessions_started());
                             }
                             _ => {}

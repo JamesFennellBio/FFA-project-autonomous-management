@@ -59,9 +59,9 @@
 - Install on the Pi: `sudo useradd -r -G spi,gpio farmlab; sudo install hub-node /usr/local/bin/; sudo mkdir -p /etc/farmlab-hub /var/lib/farmlab-hub; sudo chown farmlab /var/lib/farmlab-hub; sudo cp hub.example.toml /etc/farmlab-hub/hub.toml`
 - Edit `/etc/farmlab-hub/hub.toml`:
   - `pc_addr`: PC's IP
-  - `pc_public_key`: from pc-daemon's log / app Pairing page (hub only talks to that PC)
+  - `pc_key_id`: from pc-daemon's log / app Pairing page (hub only talks to that PC)
   - `lora.enabled = true`
-  - `app_listen`: phone port, default `0.0.0.0:7301`
+  - `app_listen`: phone port (TCP), default `0.0.0.0:7302`
 - Create identity: `sudo -u farmlab hub-node --config /etc/farmlab-hub/hub.toml init`
   - 24 words shown once, never saved → write on paper
   - derived key IS saved in `/var/lib/farmlab-hub/identity.key` → keep SD card safe
@@ -81,9 +81,9 @@
 ## Pairing
 - Only step where a person decides trust → check fingerprints
 - Hub → PC (once):
-  - `pc_public_key` set, daemon + hub running
+  - `pc_key_id` set, daemon + hub running
   - App → Pairing → "Hub (Raspberry Pi)"
-  - Fingerprint must match `hub-node fingerprint` → Approve
+  - Fingerprint must match the "phones, PC" line of `hub-node fingerprint` → Approve
 - Node → hub:
   - Node running, hold BOOT 3 s (not while plugging in: that's flashing mode)
   - Node asks to pair for 60 s
@@ -111,7 +111,7 @@
 
 ## The phone app and recipes
 - Build / install: `mobile/README.md`
-- Talks to the hub on UDP 7301, same encryption as nodes
+- Talks to the hub on TCP 7302 with v2 hybrid post-quantum encryption (Ed25519 + ML-DSA-65, X25519 + ML-KEM-768)
 - Live / History / Alerts: last 30 days (what the hub keeps)
 - Pairing tab: nodes holding BOOT → approve from phone (PC must be on, it picks the id)
 - Recipes:
@@ -148,8 +148,10 @@
 - `SX1262 init failed` → wiring (BUSY/RESET); Ebyte E22 needs `tcxo = true` (hub) / `tcxo: true` in `setup_lora` (node)
 - Temperature missing / "Sensor fault" → 4.7 kΩ pull-up DATA ↔ 3V3
 - Readings stop with PC off → expected; hub stores 30 days, sends backlog later
-- Hub log "answered with a key that is not pc_public_key" → recopy key from Pairing page
+- Hub log "answered with a key that is not pc_key_id" → recopy the key ID from the Pairing page
+- Hub won't start, "pc_public_key from before v2" → replace it with `pc_key_id` (Pairing page)
+- After upgrading to v2: approve the hub again on the Pairing page, and pair each phone again (nodes keep working)
 - Node log "saved pairing is for a different hub than FARMLAB_HUB_KEY" → pair again
 - Command "dropped" → LoRa node out of reach, 16+ queued; resend later
-- Phone "the hub didn't answer" → same Wi-Fi (not guest / mobile data), right IP, iOS Local Network allowed, UDP 7301 open on the Pi
+- Phone "the hub didn't answer" → same Wi-Fi (not guest / mobile data), right IP, iOS Local Network allowed, TCP 7302 open on the Pi
 - Phone pairing never approved → PC daemon running and hub connected to it

@@ -10,8 +10,8 @@
 
 ## Radios / links
 - Node → hub: LoRa SX1262 (915 MHz, SF7) or Wi-Fi UDP (port 7300)
-- Hub → PC: TCP (port 7400)
-- Phone → hub: Wi-Fi UDP (port 7301)
+- Hub → PC: TCP (port 7400), v2 hybrid post-quantum encryption
+- Phone → hub: Wi-Fi TCP (port 7302), v2 hybrid post-quantum encryption
 - Desktop app → PC daemon: REST on 127.0.0.1 (port 7401), bearer token
 
 ## Crypto
@@ -46,8 +46,8 @@
 
 ## Run on one PC (no hardware)
 - `cargo build --workspace`
-- `cargo run -p pc-daemon` (copy the PC public key from the log)
-- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `pc_addr = "127.0.0.1:7400"`, `pc_public_key`, `data_dir = "/tmp/farmlab-hub"`
+- `cargo run -p pc-daemon` (copy the PC key ID from the log)
+- `cp hub-node/hub.example.toml /tmp/hub.toml`, set `pc_addr = "127.0.0.1:7400"`, `pc_key_id`, `data_dir = "/tmp/farmlab-hub"`
 - `cargo run -p hub-node -- --config /tmp/hub.toml init`
 - `cargo run -p hub-node -- --config /tmp/hub.toml`
 - `cd frontend && npm install && npm run dev`

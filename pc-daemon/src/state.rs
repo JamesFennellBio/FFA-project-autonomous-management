@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crypto_sharecrate::crypto::identity::Identity;
+use crypto_sharecrate::crypto::v2::identity::{HybridIdentity, KeyId};
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
@@ -46,21 +46,22 @@ pub struct HubLive {
 
 pub struct AppState {
     pub db: Mutex<Connection>,
-    /// CRYPTO-REVIEW: the PC daemon's long-term signing key.
-    pub identity: Identity,
+    /// CRYPTO-REVIEW: the PC daemon's long-term hybrid signing key
+    /// (Ed25519 + ML-DSA-65). The hub pins its KeyId.
+    pub identity: HybridIdentity,
     pub token: String,
     pub hub: Mutex<HubLive>,
     pub pending: Mutex<HashMap<String, PendingPair>>,
-    /// CRYPTO-REVIEW: hub key a person approved in the app; it's pinned once
-    /// that hub asks again.
-    pub approved_hub: Mutex<Option<[u8; 32]>>,
+    /// CRYPTO-REVIEW: KeyId of the hub a person approved in the app; its key
+    /// is pinned once that hub asks again.
+    pub approved_hub: Mutex<Option<KeyId>>,
     /// (second, signature checks done in that second) on the hub port.
     sig_budget: Mutex<(u64, u32)>,
     /// (last request id, API calls waiting for the hub's recipe reply).
     recipe_waiters: Mutex<(u32, HashMap<u32, oneshot::Sender<RecipeReply>>)>,
 }
 
-/// Max Ed25519 verifications per second on the hub port, across all
+/// Max hybrid signature verifications per second on the hub port, across all
 /// connections (FYEO scan 2: unbounded verifies per connection).
 pub const SIG_CHECKS_PER_SEC: u32 = 20;
 
@@ -68,7 +69,7 @@ impl AppState {
     pub fn new(conn: Connection, seed: &[u8; 32], token: String) -> Self {
         Self {
             db: Mutex::new(conn),
-            identity: Identity::from_seed(seed),
+            identity: HybridIdentity::from_seed(seed),
             token,
             hub: Mutex::new(HubLive::default()),
             pending: Mutex::new(HashMap::new()),

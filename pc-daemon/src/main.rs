@@ -58,7 +58,8 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&config_dir)?;
     std::fs::create_dir_all(&data_dir)?;
 
-    // CRYPTO-REVIEW: the PC's long-term Ed25519 identity (the hub pins it at pairing).
+    // CRYPTO-REVIEW: the PC's long-term identity seed. It derives the hybrid
+    // Ed25519 + ML-DSA-65 key the hub pins at pairing.
     let seed = uplink::load_or_create_secret(&config_dir.join("identity.key"))?;
     let token = auth::load_or_create_token(&config_dir.join("api-token"))?;
     let conn = db::open(&data_dir.join("farmlab.db"))?;
@@ -66,11 +67,11 @@ async fn main() -> Result<()> {
     let state = Arc::new(state::AppState::new(conn, &seed, token));
     info!(
         "PC identity fingerprint {}",
-        uplink::fingerprint_hex(&state.identity.public_key())
+        uplink::v2::fingerprint(state.identity.public_key())
     );
     info!(
-        "PC public key (put this in hub.toml as pc_public_key): {}",
-        uplink::key_to_hex(&state.identity.public_key())
+        "PC key ID (put this in hub.toml as pc_key_id): {}",
+        hex::encode(state.identity.key_id())
     );
     info!("API token file: {}", config_dir.join("api-token").display());
 
