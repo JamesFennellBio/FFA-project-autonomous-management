@@ -1,6 +1,6 @@
 //! The one data layer every screen uses. Three backends:
 //! - **Desktop** (Tauri): `daemon_api` -> pc-daemon's REST API. The Tauri side
-//!   adds the token; this WASM code never sees it (like Electron's preload).
+//!   adds the token; this WASM code never sees it.
 //! - **Phone** (Tauri): `hub_request` -> the hub over the v2 encrypted link
 //!   (mobile/core). Replies are converted into the desktop's shapes here, so
 //!   screens don't care which one they talk to.

@@ -23,7 +23,7 @@
 - Hub pins PC key P; PC pins H; both after the one-time code exchange (`uplink/src/pake.rs`); the hub plays the "node" role toward the PC
 - Phone (key F) pins H from the QR code (or a typed key ID); hub pins F on a valid QR ticket, or after Approve on the desktop; phone never talks to the PC
 - Desktop app → daemon: loopback HTTP, 256-bit bearer token
-- Token stays in the Electron main process, page never sees it
+- Token stays in the app's Rust side (`app/src-tauri/src/daemon.rs`), the page never sees it
 
 ## Pairing (`crypto/pairing.rs`)
 - Node holds BOOT 3 s → `PAIR_REQUEST = 0x08 | pubA | Sig_A("FFA-PAIR-REQ-v1" ‖ 0x08 ‖ pubA)` (proves key ownership)
@@ -66,12 +66,12 @@
 - Replay state updates only after the tag verifies
 
 ## Phone app (`mobile/core`, `hub-node/src/hub/app.rs`)
-- Phone side in Rust (uniffi from React Native), uses `LinkCore` (v2) from crypto-sharecrate
+- Phone side in Rust (`mobile/core`, called from `app/src-tauri/src/phone.rs`), uses `LinkCore` (v2) from crypto-sharecrate
 - v2 hybrid: PAIR_REQUEST2, HELLO2 (Ed25519 + ML-DSA-65, X25519 + ML-KEM-768), HKDF, 1000 msg / 1 h rekey
 - Transport: TCP 7302, `u16 length | frame` like hub→PC (handshake frames are ~4.6 KB, too big for one UDP datagram)
   - `hub-node/src/app_tcp.rs`: max 16 connections (oldest closed when full), 120 s idle timeout, `MAX_TCP_FRAME` cap
   - only v2 frames accepted on the phone port; v1 PAIR_REQUEST / HELLO → dropped (no downgrade)
-- JavaScript only sees JSON
+- The web view (WASM UI) only sees JSON
 - Frames: one `FrameType::Uplink` per request / reply (same sealing as hub→PC)
   - max 4096 bytes JSON per request / reply
   - one request → exactly one reply
@@ -90,7 +90,7 @@
   - limits: size, depth 4, 16 conditions, 8 actions per list
   - every target a paired node, every "set" an announced output
 - Without a pinned hub key → trust-on-first-use (Settings has optional hub key ID → `WrongPeer` otherwise; Phase 3's QR code always pins it)
-- Phone seed: OS RNG in Rust → JS once → `expo-secure-store`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Keychain / Keystore, not backed up)
+- Phone seed: OS RNG in Rust, saved by Rust in `phone.json` (0600, app data folder); never reaches the web view (see Known weaknesses)
   - sits in JS memory while the app runs
 - Rate limits: shares hub's 50/s signature budget; 5 verified HELLOs / 10 s per phone; requests need a valid session
 
@@ -156,7 +156,7 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 - **Libraries:** RustCrypto `ml-dsa` 0.1.1 and `ml-kem` 0.3.3, pinned exactly, `no_std`, with the `zeroize` feature on. `hmac` 0.12. All are optional, behind `pq`, so the firmware never builds them.
 
 ## v2 app shell (`app/src-tauri`)
-- Desktop: `daemon_api` reads the daemon's API token in Rust and adds it; the WASM page never sees it (same rule as Electron's preload). Only `/api/...` paths and GET / POST / PATCH / PUT / DELETE go through; the URL is fixed to `127.0.0.1:7401` (env override for testing only)
+- Desktop: `daemon_api` reads the daemon's API token in Rust and adds it; the WASM page never sees it. Only `/api/...` paths and GET / POST / PATCH / PUT / DELETE go through; the URL is fixed to `127.0.0.1:7401` (env override for testing only)
 - Phone: `hub_request` sends the page's JSON through `farmlab-mobile-core`; all pairing, handshakes and sealing happen in Rust
   - QR pairing: the client is made from the QR's hub address and KeyId before anything is sent (`HubClient::pair_with_qr` refuses any other client)
 - CSP: `default-src 'self'`, scripts only from the app (plus `wasm-unsafe-eval`), no remote connections; Blockly and fonts are vendored, nothing loads from the network
@@ -244,6 +244,9 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 
 | File | Line | Note |
 |------|------|------|
+| `app/src-tauri/src/phone.rs` | 4 | the phone's identity seed and its pinned hub key are kept |
+| `app/src-tauri/src/phone.rs` | 23 | the phone's long-term secret (64 hex). |
+| `app/src-tauri/src/phone.rs` | 29 | the hub's full hybrid key, pinned at pairing. |
 | `crypto-sharecrate/Cargo.toml` | 18 | these are the only crypto dependencies in the whole system. |
 | `crypto-sharecrate/Cargo.toml` | 26 | v2 hybrid (feature "pq") only. |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 1 | the ECDH handshake. Runs once per session (every 10 messages |
@@ -359,16 +362,14 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 | `hub-node/src/pc_link.rs` | 31 | the pinned PC daemon hybrid key (Ed25519 + ML-DSA-65, hex). |
 | `hub-node/src/pc_link.rs` | 80 | the PC's key comes from pairing with the one-time code, and |
 | `hub-node/src/seed.rs` | 1 | hub identity from a 24-word BIP39 seed phrase. |
-| `mobile/app/src/hub/context.tsx` | 9 | "seed" is this phone's long-term Ed25519 secret. |
-| `mobile/app/src/hub/native.ts` | 4 | all pairing, handshakes and encryption happen inside the |
-| `mobile/core/src/lib.rs` | 70 | the hub's hybrid key (Ed25519 + ML-DSA-65, 3968 hex |
-| `mobile/core/src/lib.rs` | 100 | 32 bytes from the phone's OS CSPRNG. The seed passes |
-| `mobile/core/src/lib.rs` | 129 | the hub's key ID (hex). Pass it to [`HubClient::new`] as |
-| `mobile/core/src/lib.rs` | 175 | `expected_hub_key` (the hub's key ID or full key, hex), |
-| `mobile/core/src/lib.rs` | 243 | make this client from the same QR code first |
-| `mobile/core/src/lib.rs` | 349 | sealed under the current session; this counts |
-| `mobile/core/src/lib.rs` | 419 | runs the v2 hybrid handshake when there's no session or |
-| `mobile/core/src/lib.rs` | 475 | AEAD + replay check. Anything that fails is dropped. |
+| `mobile/core/src/lib.rs` | 67 | the hub's hybrid key (Ed25519 + ML-DSA-65, 3968 hex |
+| `mobile/core/src/lib.rs` | 97 | 32 bytes from the phone's OS CSPRNG. It's the phone's |
+| `mobile/core/src/lib.rs` | 123 | the hub's key ID (hex). Pass it to [`HubClient::new`] as |
+| `mobile/core/src/lib.rs` | 166 | `expected_hub_key` (the hub's key ID or full key, hex), |
+| `mobile/core/src/lib.rs` | 233 | make this client from the same QR code first |
+| `mobile/core/src/lib.rs` | 338 | sealed under the current session; this counts |
+| `mobile/core/src/lib.rs` | 408 | runs the v2 hybrid handshake when there's no session or |
+| `mobile/core/src/lib.rs` | 464 | AEAD + replay check. Anything that fails is dropped. |
 | `node-sim/src/main.rs` | 46 | the node's Ed25519 seed (on the ESP this lives in flash). |
 | `node-sim/src/main.rs` | 84 | new identity from the OS RNG, like the ESP's first boot. |
 | `node-sim/src/main.rs` | 128 | pinned hub key, same as FARMLAB_HUB_KEY on the ESP32. |
@@ -400,6 +401,6 @@ This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on
 | `uplink/src/pake.rs` | 238 | constant-time check that the hub knew the code too. |
 | `uplink/src/pake.rs` | 274 | constant-time check that the PC knew the code. A wrong |
 
-_155 tagged locations._
+_156 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

@@ -20,11 +20,13 @@ anyhow.workspace = true
 directories.workspace = true
 hex.workspace = true
 uplink = { path = "../../uplink" }
-# The phone backend: v2 crypto + TCP link to the hub, the same Rust core the
-# Expo app used.
+# The phone backend: v2 crypto + TCP link to the hub.
 farmlab-mobile-core = { path = "../../mobile/core" }
 # Plain HTTP to the daemon on 127.0.0.1 only, so no TLS.
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+# Total RAM for the Lite / Normal hint. Desktop only: sysinfo doesn't build for iOS.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]

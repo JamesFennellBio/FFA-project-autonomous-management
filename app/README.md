@@ -1,8 +1,7 @@
 # Farm & Lab app (v2): Tauri + Leptos
 
-One Rust app for the desktop and the phone. It replaces the Electron app
-(`frontend/`) and the Expo app (`mobile/app`); those stay until Phase 5 of the
-v2 rewrite removes them.
+One Rust app for the desktop and the phone. It replaced the v1 Electron
+desktop app and the Expo phone app.
 
 ## Layout
 - `ui/`: the whole interface. Leptos, compiled to WASM with Trunk.
@@ -31,10 +30,20 @@ and on Linux the WebKitGTK dev packages (`libwebkit2gtk-4.1-dev`).
 - Release build: `cd app/src-tauri && cargo tauri build` (`.deb` / `.rpm` / AppImage on Linux, `.msi` / `.exe` on Windows, `.dmg` on macOS)
 
 ## Phones
-- Android: install the Android SDK + NDK, then `cargo tauri android init` once, `cargo tauri android dev` / `build`
-- iOS (on a Mac with Xcode): `cargo tauri ios init` once, `cargo tauri ios dev` / `build`
+The phone app is this same app; `is_phone()` is true on iOS and Android.
+- Android (Linux, macOS or Windows): Android SDK + NDK, `JAVA_HOME` (JDK 17 or 21), then
+  - `cargo tauri android init` once (writes `src-tauri/gen/android`, not committed)
+  - `cargo tauri android dev` (phone on USB or an emulator) / `cargo tauri android build --apk`
+- iOS on a Mac: Xcode, then `cargo tauri ios init` once, `cargo tauri ios dev` / `build`
+- iOS from Linux, with [xtool](https://github.com/xtool-org/xtool) (`app/ios/`, a SwiftPM project instead of an Xcode one):
+  - Swift 6 (`swiftly`), the xtool AppImage, `rustup target add aarch64-apple-ios`
+  - `xtool setup` once: signs in with your Apple ID and builds the iOS SDK from an `Xcode.xip` (download it from developer.apple.com)
+  - iPhone on USB (needs `usbmuxd` running), Developer Mode on
+  - `./scripts/ios-xtool.sh` builds the UI, the Rust app as a static library, links it with Tauri's Swift runtime and the barcode plugin, then installs and opens it (`build` to only build)
+  - a free Apple ID's apps expire after 7 days; run it again
+- iOS asks for the camera (QR scanner) and Local Network (the hub); the texts are in `src-tauri/Info.ios.plist`
 - The camera QR scanner (`tauri-plugin-barcode-scanner`) is only in these builds; elsewhere the pairing link can be pasted
-- Not built or run on a phone yet: this machine has no Android SDK and no Mac. `cargo check --target aarch64-linux-android` passes
+- CI builds a debug APK and an iOS simulator build on every push (artifacts on the run page)
 
 ## Performance modes
 Picked in the first-run wizard, changed in Settings.

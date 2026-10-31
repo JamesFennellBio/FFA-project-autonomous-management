@@ -2,7 +2,7 @@
 name = "pc-daemon"
 version.workspace = true
 edition.workspace = true
-description = "Runs on the user's PC: stores all history in SQLite, runs automation rules, serves the REST API the Electron app uses"
+description = "Runs on the user's PC: stores all history in SQLite, runs automation rules, serves the REST API the desktop app uses"
 
 [dependencies]
 crypto-sharecrate.workspace = true

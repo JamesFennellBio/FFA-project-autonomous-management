@@ -1,0 +1,8 @@
+# iOS app built from Linux (or a Mac) with xtool: see app/README.md → Phones.
+# Build and run with scripts/ios-xtool.sh, not `xtool dev` directly: the Rust
+# library and the Swift plugin packages have to be prepared first.
+version: 1
+bundleID: org.farmlab.app
+product: FarmLab
+infoPath: ../src-tauri/Info.ios.plist
+iconPath: ../src-tauri/icons/icon.png

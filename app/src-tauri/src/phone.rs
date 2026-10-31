@@ -1,5 +1,5 @@
 //! Phone backend: the hub over the v2 encrypted TCP link, through
-//! farmlab-mobile-core (the same Rust core the Expo app used).
+//! farmlab-mobile-core.
 //!
 //! CRYPTO-REVIEW: the phone's identity seed and its pinned hub key are kept
 //! in `phone.json` in the app's private data folder, written 0600 (Android
