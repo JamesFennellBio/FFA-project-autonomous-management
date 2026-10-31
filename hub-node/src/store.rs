@@ -218,7 +218,9 @@ mod tests {
         let path = dir.path().join("hub.db");
         let mut s = Store::open(&path).unwrap();
         let a = s.push(&msg(1)).unwrap();
-        let b = s.push(&msg(2)).unwrap();
+        // Keep the message: a new msg(2) later can have the next second's ts.
+        let second = msg(2);
+        let b = s.push(&second).unwrap();
         assert!(b > a);
         s.mark_forwarded(a).unwrap();
         assert_eq!(s.backlog().unwrap(), 1);
@@ -227,7 +229,7 @@ mod tests {
 
         let mut s = Store::open(&path).unwrap();
         let unsent = s.unsent(0, 10).unwrap();
-        assert_eq!(unsent, vec![(b, msg(2))]);
+        assert_eq!(unsent, vec![(b, second)]);
         assert!(
             s.push(&msg(3)).unwrap() > b,
             "ids keep increasing after restore"
