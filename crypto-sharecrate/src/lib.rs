@@ -51,6 +51,8 @@ pub enum Error {
     WrongPeer,
     /// This exact HELLO was already seen (replay).
     ReplayedHello,
+    /// A v2 pairing request's QR-ticket proof is missing or wrong.
+    BadTicket,
 }
 
 impl core::fmt::Display for Error {

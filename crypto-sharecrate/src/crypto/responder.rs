@@ -74,17 +74,48 @@ impl PeerSessions {
         epoch_rand: u32,
         now: u64,
     ) -> Result<[u8; HS_FRAME_LEN]> {
-        let mut epoch = epoch_rand;
-        while self.epoch_in_use(epoch) {
-            epoch = epoch.wrapping_add(1);
-        }
+        let epoch = self.free_epoch(epoch_rand);
         // respond() checks the length and signature first, so a forged frame
         // never gets into the nonce list.
         let (ack, session) = handshake::respond(hello, peer_pub, identity, epoch, rand, now)?;
         let mut nonce = [0u8; 16];
         nonce.copy_from_slice(&hello[35..51]);
+        self.admit(nonce, session)?;
+        Ok(ack)
+    }
+
+    /// v2 (hybrid) version of [`Self::on_hello`] for the hub <-> PC and
+    /// hub <-> phone links. Same replay and pending-session rules.
+    #[cfg(feature = "pq")]
+    pub fn on_hello_v2(
+        &mut self,
+        hello: &[u8],
+        peer_pub: &super::v2::identity::HybridPublic,
+        identity: &super::v2::identity::HybridIdentity,
+        rand: &super::v2::handshake::HandshakeRandom,
+        epoch_rand: u32,
+        now: u64,
+    ) -> Result<[u8; super::v2::handshake::ACK2_LEN]> {
+        let epoch = self.free_epoch(epoch_rand);
+        let (ack, session) =
+            super::v2::handshake::respond(hello, peer_pub, identity, epoch, rand, now)?;
+        self.admit(super::v2::handshake::hello_nonce(hello)?, session)?;
+        Ok(ack)
+    }
+
+    fn free_epoch(&self, epoch_rand: u32) -> u32 {
+        let mut epoch = epoch_rand;
+        while self.epoch_in_use(epoch) {
+            epoch = epoch.wrapping_add(1);
+        }
+        epoch
+    }
+
+    /// Records a verified HELLO's nonce and parks its session as pending.
+    fn admit(&mut self, nonce: [u8; 16], session: Session) -> Result<()> {
         // CRYPTO-REVIEW: a HELLO nonce is 16 random bytes from the node, so a
-        // repeat means a replay. The ACK and session made above are thrown away.
+        // repeat means a replay. The ACK and session made by the caller are
+        // thrown away.
         if self.seen[..self.seen_len].contains(&nonce) {
             return Err(Error::ReplayedHello);
         }
@@ -101,7 +132,7 @@ impl PeerSessions {
         if let Some(slot) = self.pending.iter_mut().find(|p| p.is_none()) {
             *slot = Some(session);
         }
-        Ok(ack)
+        Ok(())
     }
 
     fn epoch_in_use(&self, epoch: u32) -> bool {

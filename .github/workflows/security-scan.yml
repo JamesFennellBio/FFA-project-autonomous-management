@@ -18,13 +18,14 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p hub-node --features lora -- -D warnings
+      - run: cargo clippy -p crypto-sharecrate --features pq --all-targets -- -D warnings
       # Failing tests and their panic messages also become annotations, which
       # GitHub shows without signing in (job logs need a sign-in).
       - name: cargo test --workspace
         shell: bash
         run: |
           set -o pipefail
-          if ! cargo test --workspace 2>&1 | tee test.log; then
+          if ! { cargo test --workspace && cargo test -p crypto-sharecrate --features pq; } 2>&1 | tee test.log; then
             grep -E '^---- |panicked at|^test .* FAILED' test.log | head -40 | sed 's/^/::error title=cargo test::/'
             exit 1
           fi

@@ -30,3 +30,13 @@ hex = "0.4"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 directories = "5"
+
+# ML-DSA / ML-KEM are very slow unoptimized; keep debug builds and tests usable.
+[profile.dev.package.ml-dsa]
+opt-level = 3
+[profile.dev.package.ml-kem]
+opt-level = 3
+[profile.dev.package.module-lattice]
+opt-level = 3
+[profile.dev.package.shake]
+opt-level = 3

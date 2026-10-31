@@ -7,6 +7,9 @@
 //! - Key derivation: HKDF-SHA256 into two directional keys ([`kdf`])
 //! - Transport: ChaCha20-Poly1305 AEAD with a counter nonce and replay window ([`session`])
 //! - Rekey policy: new ECDH every 10 messages or 1 hour, whichever comes first ([`session::MAX_MSGS`], [`session::MAX_AGE_SECS`])
+//! - v2 hybrid post-quantum protocol for the hub <-> PC and hub <-> phone links,
+//!   behind the `pq` feature ([`v2`]): Ed25519 + ML-DSA-65 signatures,
+//!   X25519 + ML-KEM-768 key exchange
 
 pub mod handshake;
 pub mod identity;
@@ -14,6 +17,8 @@ pub mod kdf;
 pub mod pairing;
 pub mod responder;
 pub mod session;
+#[cfg(feature = "pq")]
+pub mod v2;
 
 /// Joins byte slices into one buffer for signing/hashing without `alloc`.
 /// The biggest transcript is about 140 bytes.

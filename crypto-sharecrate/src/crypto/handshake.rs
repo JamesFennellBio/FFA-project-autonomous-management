@@ -107,7 +107,7 @@ pub fn hello_node_id(frame: &[u8]) -> Result<u16> {
 
 /// CRYPTO-REVIEW: X25519, then reject a non-contributory (all-zero) result
 /// that a small-order peer key would give.
-fn ecdh(secret: &StaticSecret, peer: &[u8]) -> Result<[u8; 32]> {
+pub(crate) fn ecdh(secret: &StaticSecret, peer: &[u8]) -> Result<[u8; 32]> {
     let mut p = [0u8; 32];
     p.copy_from_slice(peer);
     let shared = secret.diffie_hellman(&PublicKey::from(p));

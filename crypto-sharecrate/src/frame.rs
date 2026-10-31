@@ -60,6 +60,15 @@ pub enum FrameType {
     // ---- hub <-> PC only, encrypted, variable length ----
     /// JSON message between hub and PC daemon.
     Uplink = 0x0A,
+    // ---- v2 hybrid (hub <-> PC, hub <-> phone), plaintext, signed, variable length ----
+    /// v2 session start: X25519 + ML-KEM-768 ephemeral keys, hybrid-signed.
+    Hello2 = 0x10,
+    /// v2 session reply: X25519 key + ML-KEM ciphertext, hybrid-signed.
+    HelloAck2 = 0x11,
+    /// v2 pairing request (hybrid public key, optional QR ticket proof).
+    PairRequest2 = 0x12,
+    /// v2 pairing accept.
+    PairAccept2 = 0x13,
 }
 
 impl FrameType {
@@ -76,6 +85,10 @@ impl FrameType {
             0x08 => Self::PairRequest,
             0x09 => Self::PairAccept,
             0x0A => Self::Uplink,
+            0x10 => Self::Hello2,
+            0x11 => Self::HelloAck2,
+            0x12 => Self::PairRequest2,
+            0x13 => Self::PairAccept2,
             _ => return Err(Error::BadFrame), // unknown type -> drop the frame
         })
     }
@@ -84,7 +97,14 @@ impl FrameType {
     pub fn is_encrypted(self) -> bool {
         !matches!(
             self,
-            Self::Hello | Self::HelloAck | Self::PairRequest | Self::PairAccept
+            Self::Hello
+                | Self::HelloAck
+                | Self::PairRequest
+                | Self::PairAccept
+                | Self::Hello2
+                | Self::HelloAck2
+                | Self::PairRequest2
+                | Self::PairAccept2
         )
     }
 }
@@ -153,7 +173,7 @@ impl Header {
 /// `PairRequest` has no id yet and returns `None`.
 pub fn peek_node_id(frame: &[u8]) -> Option<u16> {
     let t = FrameType::from_byte(*frame.first()?).ok()?;
-    if t == FrameType::PairRequest || frame.len() < 3 {
+    if matches!(t, FrameType::PairRequest | FrameType::PairRequest2) || frame.len() < 3 {
         return None;
     }
     Some(u16::from_le_bytes([frame[1], frame[2]]))

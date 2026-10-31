@@ -10,9 +10,13 @@ use crate::frame::{Direction, FRAME_LEN, FrameType, HEADER_LEN, Header, TAG_LEN}
 use crate::packet::Packet;
 use crate::{Error, Result};
 
-/// CRYPTO-REVIEW: rekey after this many frames in either direction.
-/// Counters run 0..=9, so frame 10 can never be sent or accepted.
+/// CRYPTO-REVIEW: rekey after this many frames in either direction (v1 radio
+/// links). Counters run 0..=9, so frame 10 can never be sent or accepted.
 pub const MAX_MSGS: u32 = 10;
+/// CRYPTO-REVIEW: the same limit for v2 hybrid links (hub <-> PC, hub <-> phone).
+/// A hybrid handshake costs a few ms of ML-DSA/ML-KEM work on a Pi 3B, so these
+/// links rekey every 1000 frames or [`MAX_AGE_SECS`], whichever comes first.
+pub const V2_MAX_MSGS: u32 = 1000;
 /// CRYPTO-REVIEW: rekey after this many seconds, even if few frames were sent.
 pub const MAX_AGE_SECS: u64 = 3600;
 /// Extra time the receiving side allows for frames still in flight when the
@@ -41,6 +45,8 @@ pub struct Session {
     recv_count: u32,
     /// Time the session was created, in caller seconds (monotonic).
     created: u64,
+    /// Frames allowed per direction before a rekey ([`MAX_MSGS`] or [`V2_MAX_MSGS`]).
+    max_msgs: u32,
 }
 
 impl Drop for Session {
@@ -81,7 +87,15 @@ impl Session {
             recv_next: 0,
             recv_count: 0,
             created: now,
+            max_msgs: MAX_MSGS,
         }
+    }
+
+    /// Same session with a different per-direction frame limit (v2 links).
+    #[cfg(feature = "pq")]
+    pub(crate) fn with_max_msgs(mut self, max_msgs: u32) -> Self {
+        self.max_msgs = max_msgs;
+        self
     }
 
     fn send_dir(&self) -> Direction {
@@ -110,17 +124,19 @@ impl Session {
         self.recv_count
     }
 
-    /// CRYPTO-REVIEW: the "1 hour or 10 transmissions" rule. The initiator checks
+    /// CRYPTO-REVIEW: the "1 hour or N transmissions" rule (N = 10 on radio links). The initiator checks
     /// this before every send and starts a new handshake when it's true. It
     /// counts both directions, so a responder that has used up its 10 sends
     /// gets a fresh session the next time the initiator talks.
     pub fn needs_rekey(&self, now: u64) -> bool {
-        self.send_ctr >= MAX_MSGS || self.recv_count >= MAX_MSGS || self.age(now) >= MAX_AGE_SECS
+        self.send_ctr >= self.max_msgs
+            || self.recv_count >= self.max_msgs
+            || self.age(now) >= MAX_AGE_SECS
     }
 
     /// True if [`Session::seal`] would succeed right now.
     pub fn can_send(&self, now: u64) -> bool {
-        self.send_ctr < MAX_MSGS && self.age(now) < MAX_AGE_SECS
+        self.send_ctr < self.max_msgs && self.age(now) < MAX_AGE_SECS
     }
 
     /// Encrypts `plaintext` into `out` as `header | ciphertext | tag` and
@@ -196,7 +212,7 @@ impl Session {
         }
         // CRYPTO-REVIEW: refuse anything from an expired session or past the
         // message limit, even if the tag is valid.
-        if header.counter >= MAX_MSGS || self.age(now) > MAX_AGE_SECS + GRACE_SECS {
+        if header.counter >= self.max_msgs || self.age(now) > MAX_AGE_SECS + GRACE_SECS {
             return Err(Error::RekeyRequired);
         }
         // CRYPTO-REVIEW: replay protection. The counter must be strictly newer
