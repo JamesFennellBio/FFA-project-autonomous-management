@@ -131,11 +131,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      # The runner image already has the Android SDK and NDK.
       - name: Android NDK
-        run: |
-          sdkmanager --install "ndk;27.2.12479018"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+        run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown, aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
@@ -167,6 +165,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: trunk,tauri-cli
+      # Installed here, natively: Tauri would otherwise run brew itself, which
+      # fails when its CLI binary runs under Rosetta.
+      - name: xcodegen and CocoaPods
+        run: brew install xcodegen cocoapods
       - name: cargo tauri ios build (simulator)
         working-directory: app/src-tauri
         run: |
