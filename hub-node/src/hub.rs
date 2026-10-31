@@ -104,6 +104,19 @@ impl PhoneEntry {
     }
 }
 
+/// A one-time phone pairing ticket from the desktop app's QR code. Kept in
+/// memory only: a hub restart cancels open QR codes.
+struct PhoneTicket {
+    /// CRYPTO-REVIEW: HMAC key the phone must prove it knows (from the QR code).
+    token: [u8; 16],
+    phone_id: u16,
+    /// Monotonic second after which the ticket is refused.
+    expires: u64,
+}
+
+/// Open QR tickets at once (each is one "Add phone" click in the desktop app).
+const MAX_TICKETS: usize = 4;
+
 /// Saved in `paired.json` as soon as anything changes. Pairings are too
 /// important to wait for the daily flush.
 #[derive(Serialize, Deserialize, Default)]
@@ -191,6 +204,8 @@ pub struct Hub {
     approved: HashMap<[u8; 32], u16>,
     /// Phones are approved by KeyId (the hash of their hybrid key).
     approved_phones: HashMap<KeyId, u16>,
+    /// CRYPTO-REVIEW: open QR tickets, oldest first. Single use.
+    tickets: VecDeque<PhoneTicket>,
     last_pair_forward: HashMap<[u8; 32], i64>,
     last_any_pair_forward: i64,
     /// (second, signature checks done in that second)
@@ -244,6 +259,7 @@ impl Hub {
             phones: HashMap::new(),
             approved: HashMap::new(),
             approved_phones: HashMap::new(),
+            tickets: VecDeque::new(),
             last_pair_forward: HashMap::new(),
             last_any_pair_forward: i64::MIN,
             sig_budget: (0, 0),
@@ -698,6 +714,33 @@ impl Hub {
     pub fn on_pc(&mut self, msg: PcMsg, mono: u64, unix: i64) -> Output {
         let mut out = Output::default();
         match msg {
+            PcMsg::PhoneTicket {
+                token,
+                phone_id,
+                ttl_secs,
+            } => {
+                let token: Option<[u8; 16]> =
+                    hex::decode(&token).ok().and_then(|t| t.try_into().ok());
+                let taken = self.phones.contains_key(&phone_id)
+                    || self.approved_phones.values().any(|id| *id == phone_id);
+                match token {
+                    Some(token) if !taken => {
+                        // CRYPTO-REVIEW: capped list, oldest dropped; each
+                        // ticket expires after ttl_secs (at most 10 minutes).
+                        if self.tickets.len() >= MAX_TICKETS {
+                            self.tickets.pop_front();
+                        }
+                        self.tickets.push_back(PhoneTicket {
+                            token,
+                            phone_id,
+                            expires: mono + u64::from(ttl_secs.min(600)),
+                        });
+                        info!("phone pairing QR code {phone_id} is open for {ttl_secs} s");
+                    }
+                    Some(_) => warn!("refusing QR ticket: phone id {phone_id} is already in use"),
+                    None => warn!("refusing QR ticket with a bad token"),
+                }
+            }
             PcMsg::Ack { .. } => {} // handled by pc_link
             PcMsg::ApprovePair {
                 public_key,

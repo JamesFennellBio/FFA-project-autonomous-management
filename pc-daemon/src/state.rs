@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crypto_sharecrate::crypto::v2::identity::{HybridIdentity, KeyId};
+use crypto_sharecrate::crypto::v2::identity::HybridIdentity;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
@@ -16,7 +16,6 @@ pub const MAX_PENDING: usize = 32;
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PairKind {
-    Hub,
     Node,
     Phone,
 }
@@ -42,6 +41,8 @@ pub struct HubLive {
     pub tx: Option<mpsc::UnboundedSender<PcMsg>>,
     /// Which TCP connection owns `tx` (only that one may clear it).
     pub conn_id: Option<u64>,
+    /// The IP the hub connects from (put in phone pairing QR codes).
+    pub addr: Option<std::net::IpAddr>,
 }
 
 pub struct AppState {
@@ -52,9 +53,8 @@ pub struct AppState {
     pub token: String,
     pub hub: Mutex<HubLive>,
     pub pending: Mutex<HashMap<String, PendingPair>>,
-    /// CRYPTO-REVIEW: KeyId of the hub a person approved in the app; its key
-    /// is pinned once that hub asks again.
-    pub approved_hub: Mutex<Option<KeyId>>,
+    /// The port the hub connects to (`--hub-listen`), told to the hub when pairing.
+    pub hub_listen_port: std::sync::atomic::AtomicU16,
     /// (second, signature checks done in that second) on the hub port.
     sig_budget: Mutex<(u64, u32)>,
     /// (last request id, API calls waiting for the hub's recipe reply).
@@ -73,7 +73,7 @@ impl AppState {
             token,
             hub: Mutex::new(HubLive::default()),
             pending: Mutex::new(HashMap::new()),
-            approved_hub: Mutex::new(None),
+            hub_listen_port: std::sync::atomic::AtomicU16::new(7400),
             sig_budget: Mutex::new((0, 0)),
             recipe_waiters: Mutex::new((0, HashMap::new())),
         }

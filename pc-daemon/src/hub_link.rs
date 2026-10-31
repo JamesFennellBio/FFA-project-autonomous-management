@@ -10,9 +10,7 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 use crypto_sharecrate::crypto::responder::PeerSessions;
-use crypto_sharecrate::crypto::v2::{
-    handshake as handshake2, identity as identity2, pairing as pairing2,
-};
+use crypto_sharecrate::crypto::v2::handshake as handshake2;
 use crypto_sharecrate::frame::FrameType;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -125,7 +123,7 @@ async fn serve_on(state: Arc<AppState>, listener: TcpListener) {
                 let sl = slots.clone();
                 let task = tokio::spawn(async move {
                     info!("hub connection from {peer}");
-                    if let Err(e) = handle(st.clone(), stream, conn_id, &sl).await {
+                    if let Err(e) = handle(st.clone(), stream, peer, conn_id, &sl).await {
                         warn!("hub connection {peer} closed: {e:#}");
                     }
                     sl.release(conn_id);
@@ -156,6 +154,7 @@ fn hs_random() -> Result<(handshake2::HandshakeRandom, u32)> {
 async fn handle(
     state: Arc<AppState>,
     stream: TcpStream,
+    peer_addr: SocketAddr,
     conn_id: u64,
     slots: &Slots,
 ) -> Result<()> {
@@ -184,19 +183,9 @@ async fn handle(
             ) => {
                 let frame = frame.map_err(|_| anyhow::anyhow!("timed out waiting for a frame"))??;
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
-                    // CRYPTO-REVIEW: only v2 frames on the hub port. A v1
-                    // PAIR_REQUEST or HELLO hits "unexpected frame" (no downgrade).
-                    FrameType::PairRequest2 => {
-                        if !state.take_sig_budget(mono_now()) {
-                            bail!("signature budget used up");
-                        }
-                        // Some(reply) only for the pinned or approved hub.
-                        if let Some(reply) = on_pair_request(&state, &frame)? {
-                            proven = true;
-                            slots.mark_proven(conn_id);
-                            write_frame(&mut wr, &reply).await?;
-                        }
-                    }
+                    // CRYPTO-REVIEW: only HELLO2 and Uplink on the hub port. The
+                    // hub pairs with the one-time code (uplink::pake), never here,
+                    // and v1 frames hit "unexpected frame" (no downgrade).
                     FrameType::Hello2 => {
                         let paired = db::paired_hub(&state.db.lock().unwrap())?;
                         let Some((hub_id, hub_pub)) = paired else {
@@ -232,6 +221,7 @@ async fn handle(
                             hub.connected = true;
                             hub.tx = Some(tx.clone());
                             hub.conn_id = Some(conn_id);
+                            hub.addr = Some(peer_addr.ip());
                             registered = true;
                             // The phone app shows these names.
                             queue.push(db::labels(&state.db.lock().unwrap())?);
@@ -288,42 +278,6 @@ async fn flush(
     write_frame(wr, &frame).await
 }
 
-/// CRYPTO-REVIEW: hub pairing (v2). A hub is only pinned after a person
-/// approved its fingerprint (KeyId) in the app. Phase 3 replaces this with the
-/// SPAKE2 code flow.
-fn on_pair_request(state: &AppState, frame: &[u8]) -> Result<Option<Vec<u8>>> {
-    let req =
-        pairing2::parse_pair_request(frame).map_err(|e| anyhow::anyhow!("pair request: {e}"))?;
-    let hub_pub = req.device_pub;
-    let kid = identity2::key_id(&hub_pub);
-    let conn = state.db.lock().unwrap();
-    if let Some((id, pinned)) = db::paired_hub(&conn)?
-        && *pinned == hub_pub
-    {
-        // Already paired; our earlier accept must have been lost. Send it again.
-        return Ok(Some(
-            pairing2::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
-        ));
-    }
-    let approved = *state.approved_hub.lock().unwrap();
-    if approved == Some(kid) {
-        let id = db::pair_hub(&conn, &hub_pub, unix_now())?;
-        *state.approved_hub.lock().unwrap() = None;
-        info!("hub {} paired", uplink::v2::fingerprint(&hub_pub));
-        return Ok(Some(
-            pairing2::pair_accept(&state.identity, &hub_pub, id as u16).to_vec(),
-        ));
-    }
-    state.add_pending(PendingPair {
-        kind: PairKind::Hub,
-        public_key: hex::encode(kid),
-        fingerprint: uplink::v2::fingerprint(&hub_pub),
-        transport: None,
-        seen_at: unix_now(),
-    });
-    Ok(None)
-}
-
 /// A node approval a phone asked for: (public key, name, phone id).
 type PhoneApproval = (String, Option<String>, u16);
 
@@ -368,6 +322,20 @@ fn store_batch(state: &AppState, batch: &HubBatch) -> Result<(Option<i64>, Vec<P
                     (None, None) => Err("empty reply from the hub".into()),
                 },
             ),
+            // CRYPTO-REVIEW: a phone that proved it scanned our QR ticket.
+            // The id was reserved when the ticket was made.
+            HubMsg::PhonePaired {
+                phone_id,
+                key_id,
+                fingerprint,
+                ts,
+            } => {
+                tx.execute(
+                    "INSERT OR IGNORE INTO phones (id, public_key, name, paired_at) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![phone_id, key_id, format!("Phone {phone_id}"), ts],
+                )?;
+                info!("phone {phone_id} ({fingerprint}) paired with a QR code");
+            }
             HubMsg::Heartbeat { backlog, ts } => {
                 let mut hub = state.hub.lock().unwrap();
                 hub.backlog = *backlog;

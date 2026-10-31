@@ -9,12 +9,17 @@ udp_listen = "0.0.0.0:7300"
 # The phone app connects here over TCP (encrypted with the v2 hybrid protocol).
 app_listen = "0.0.0.0:7302"
 
-# The PC running pc-daemon. Give the PC a fixed IP (DHCP reservation) on your router.
-pc_addr = "192.168.1.50:7400"
+# Pairing with the PC: run `hub-node pair` and enter the code it prints in the
+# desktop app (Pairing > Add hub). The hub learns the PC's address and key then.
+# pair_listen = "0.0.0.0:7402"
 
-# REQUIRED. The PC daemon's key ID: copy it from the app's Pairing page
-# (or pc-daemon's startup log). The hub will only ever pair with this PC.
-pc_key_id = "paste-the-64-character-key-id-here"
+# Optional: the PC's address, if it changes after pairing (give the PC a fixed IP
+# with a DHCP reservation and you won't need this).
+# pc_addr = "192.168.1.50:7400"
+
+# Optional extra pin: only ever pair with this PC (its key ID from the app's
+# Pairing page or pc-daemon's log).
+# pc_key_id = "64-character-key-id"
 
 # How often the RAM database is written to the SD card (seconds). Default: once a day.
 flush_interval_secs = 86400

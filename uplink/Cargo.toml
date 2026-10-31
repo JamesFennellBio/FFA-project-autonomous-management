@@ -12,3 +12,10 @@ tokio.workspace = true
 anyhow.workspace = true
 hex.workspace = true
 rand_core = { version = "0.6", features = ["getrandom"] }
+# CRYPTO-REVIEW: SPAKE2 for the hub <-> PC pairing code (pake.rs).
+spake2 = { version = "=0.4.0", features = ["getrandom", "std"] }
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

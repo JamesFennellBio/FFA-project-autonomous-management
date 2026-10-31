@@ -150,12 +150,7 @@ pub(crate) fn approve_key(
         )
     })?;
     drop(pending);
-    let pk = uplink::key_from_hex(&p.public_key)?;
     match p.kind {
-        PairKind::Hub => {
-            *s.approved_hub.lock().unwrap() = Some(pk);
-            Ok(json!({ "ok": true, "kind": "hub" }))
-        }
         PairKind::Phone => {
             let phone_id = {
                 let conn = s.db.lock().unwrap();

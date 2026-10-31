@@ -16,13 +16,20 @@ pub struct Config {
     /// Where the phone app connects (TCP).
     #[serde(default = "default_app")]
     pub app_listen: String,
-    /// The PC daemon (`pc-daemon --hub-listen`), e.g. "192.168.1.50:7400".
-    pub pc_addr: String,
-    /// CRYPTO-REVIEW: the PC daemon's key ID (64 hex chars: SHA-256 of its
-    /// hybrid Ed25519 + ML-DSA-65 key), shown in the app under Pairing and in
-    /// pc-daemon's startup log. The hub refuses any other PC (finding 12).
+    /// Where `hub-node pair` listens for the PC during a pairing window.
+    #[serde(default = "default_pair")]
+    pub pair_listen: String,
+    /// Optional: the PC daemon (`pc-daemon --hub-listen`), e.g.
+    /// "192.168.1.50:7400". Normally learned when pairing with `hub-node pair`;
+    /// set it if the PC's address changes.
     #[serde(default)]
-    pub pc_key_id: String,
+    pub pc_addr: Option<String>,
+    /// CRYPTO-REVIEW: optional extra pin. The PC daemon's key ID (64 hex chars:
+    /// SHA-256 of its hybrid key). If set, `hub-node pair` only accepts that PC
+    /// and the uplink refuses any other (finding 12). Pairing with the code
+    /// pins the PC anyway.
+    #[serde(default)]
+    pub pc_key_id: Option<String>,
     /// v1 setting, replaced by `pc_key_id`. Only read to explain the change.
     #[serde(default)]
     pub pc_public_key: Option<String>,
@@ -87,6 +94,10 @@ fn default_udp() -> String {
 fn default_app() -> String {
     format!("0.0.0.0:{}", uplink::app::APP_PORT)
 }
+fn default_pair() -> String {
+    format!("0.0.0.0:{}", uplink::pake::PAIR_PORT)
+}
+
 fn default_flush() -> u64 {
     86_400
 }
@@ -113,21 +124,20 @@ impl Config {
         toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))
     }
 
-    pub fn pc_key(&self) -> Result<[u8; 32]> {
-        if self.pc_key_id.trim().is_empty() {
-            if self.pc_public_key.is_some() {
-                anyhow::bail!(
-                    "hub.toml has pc_public_key from before v2. Replace it with pc_key_id = \"<PC key ID>\" \
-                     (shown on the app's Pairing page and in pc-daemon's log)"
-                );
-            }
+    /// The optional PC pin from `pc_key_id`.
+    pub fn pc_key(&self) -> Result<Option<[u8; 32]>> {
+        if self.pc_public_key.is_some() {
             anyhow::bail!(
-                "hub.toml needs pc_key_id (shown on the app's Pairing page and in pc-daemon's log)"
+                "hub.toml has pc_public_key from before v2. Remove it and pair with the PC by \
+                 running `hub-node pair` (or set pc_key_id = \"<PC key ID>\" to pin a PC)"
             );
         }
-        uplink::key_from_hex(self.pc_key_id.trim()).context(
-            "pc_key_id in hub.toml must be the PC's 64-character key ID \
-             (shown on the app's Pairing page and in pc-daemon's log)",
-        )
+        match self.pc_key_id.as_deref().map(str::trim) {
+            None | Some("") => Ok(None),
+            Some(k) => uplink::key_from_hex(k).map(Some).context(
+                "pc_key_id in hub.toml must be the PC's 64-character key ID \
+                 (shown on the app's Pairing page and in pc-daemon's log)",
+            ),
+        }
     }
 }
