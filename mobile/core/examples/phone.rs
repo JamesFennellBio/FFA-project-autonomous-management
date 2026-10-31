@@ -4,6 +4,7 @@
 //! ```text
 //! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 pair
 //! cargo run -p farmlab-mobile-core --example phone -- --hub 127.0.0.1:7302 ask '{"type":"channels"}'
+//! cargo run -p farmlab-mobile-core --example phone -- pair-qr 'farmlab://pair?v=2&a=...'
 //! ```
 
 use std::path::PathBuf;
@@ -35,6 +36,13 @@ enum Cmd {
         #[arg(long, default_value_t = 120)]
         timeout: u32,
     },
+    /// Pair with the QR code text from the desktop app (Pairing > Add phone);
+    /// no approval needed. `--hub` and `--hub-key` come from the code.
+    PairQr {
+        uri: String,
+        #[arg(long, default_value_t = 30)]
+        timeout: u32,
+    },
     /// Send one JSON request and print the reply.
     Ask { json: String },
 }
@@ -64,6 +72,20 @@ async fn main() -> Result<()> {
         }),
         _ => None,
     };
+    if let Cmd::PairQr { uri, timeout } = &args.cmd {
+        let qr = farmlab_mobile_core::parse_pairing_qr(uri.clone())?;
+        println!("Hub {} at {}", qr.hub_fingerprint, qr.hub_addr);
+        let client = HubClient::new(st.seed.clone(), qr.hub_addr, None, Some(qr.hub_key_id))?;
+        let p = client
+            .pair_with_qr(uri.clone(), *timeout)
+            .await
+            .context("pairing")?;
+        println!("Paired as phone {} (no approval needed)", p.phone_id);
+        st.phone_id = Some(p.phone_id);
+        st.hub_public_key = Some(p.hub_public_key);
+        uplink::write_secret(&args.state, &serde_json::to_string(&st)?)?;
+        return Ok(());
+    }
     let client = HubClient::new(st.seed.clone(), args.hub, pairing, args.hub_key)?;
     match args.cmd {
         Cmd::Pair { timeout } => {
@@ -84,6 +106,7 @@ async fn main() -> Result<()> {
             uplink::write_secret(&args.state, &serde_json::to_string(&st)?)?;
         }
         Cmd::Ask { json } => println!("{}", client.request(json).await?),
+        Cmd::PairQr { .. } => unreachable!("handled above"),
     }
     Ok(())
 }

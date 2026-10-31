@@ -121,6 +121,11 @@ function handle(method: string, path: string, body: unknown): unknown {
   if (p[0] === "pairing" && p.length === 2) return pending;
   if (p[0] === "pairing") { pending.splice(pending.findIndex((x) => x.public_key === p[2]), 1); return {}; }
   if (p[0] === "phones" && method === "GET") return phones;
+  if (p[0] === "hubs") return { fingerprint: "E5A0-6B13-F8D2-4C71" };
+  if (p[0] === "phones" && p[1] === "ticket") {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><rect x="1" y="1" width="7" height="7"/><rect x="13" y="1" width="7" height="7"/><rect x="1" y="13" width="7" height="7"/></svg>';
+    return { phone_id: phones.length + 1, uri: "farmlab://pair?v=2&a=192.168.1.20:7302&k=00&t=00&e=0", svg, expires: now() + 300, hub_fingerprint: "E5A0-6B13-F8D2-4C71" };
+  }
   if (p[0] === "phones") { phones.splice(phones.findIndex((x) => x.id === Number(p[1])), 1); return {}; }
   if (p[0] === "alerts" && p[2] === "ack") { const a = alerts.find((x) => x.id === Number(p[1])); if (a) a.acked = true; return {}; }
   if (p[0] === "alerts") return q.get("unacked") === "true" ? alerts.filter((a) => !a.acked) : alerts;

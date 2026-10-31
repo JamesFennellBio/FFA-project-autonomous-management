@@ -183,11 +183,8 @@ async fn session(
                 match FrameType::from_byte(frame[0]).map_err(|e| anyhow::anyhow!("{e}"))? {
                     FrameType::HelloAck2 => {
                         let event = core.handle_frame(&frame, now).map_err(|e| anyhow::anyhow!("{e}"))?;
-                        match event {
-                            LinkEvent::SessionUp { epoch } => {
-                                tracing::debug!("PC session up, epoch {epoch:#x} (#{})", core.sessions_started());
-                            }
-                            _ => {}
+                        if let LinkEvent::SessionUp { epoch } = event {
+                            tracing::debug!("PC session up, epoch {epoch:#x} (#{})", core.sessions_started());
                         }
                     }
                     FrameType::Uplink => {

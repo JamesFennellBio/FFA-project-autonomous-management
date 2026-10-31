@@ -3,6 +3,8 @@
 //! | Method | Path                                          | What it does |
 //! |--------|-----------------------------------------------|--------------|
 //! | GET    | /api/status                                   | hub link + PC fingerprint |
+//! | POST   | /api/hubs/pair                                | pair the hub with its one-time code (`{"address", "code"}`) |
+//! | POST   | /api/phones/ticket                            | one-time phone pairing QR code |
 //! | GET    | /api/pairing/requests                         | devices waiting for approval |
 //! | POST   | /api/pairing/requests/{key}/approve           | approve (body: `{"name": "..."}`) |
 //! | POST   | /api/pairing/requests/{key}/reject            | dismiss |
@@ -39,6 +41,8 @@ use crate::{auth, db};
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/status", get(status))
+        .route("/api/hubs/pair", post(pair_hub))
+        .route("/api/phones/ticket", post(phone_ticket))
         .route("/api/pairing/requests", get(list_pending))
         .route("/api/pairing/requests/{key}/approve", post(approve))
         .route("/api/pairing/requests/{key}/reject", post(reject))
@@ -108,6 +112,119 @@ async fn status(State(s): St) -> ApiResult {
             "sessions": hub.sessions,
         },
         "time": unix_now(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct PairHubBody {
+    /// The Pi's IP, optionally with the port (`hub-node pair` prints both).
+    address: String,
+    code: String,
+}
+
+/// How long the whole code exchange with the hub may take.
+const HUB_PAIR_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// "192.168.1.20" -> "192.168.1.20:7402"; an address with a port is kept.
+fn hub_pair_addr(a: &str) -> String {
+    use std::net::{IpAddr, SocketAddr};
+    if a.parse::<SocketAddr>().is_ok() {
+        a.to_string()
+    } else if let Ok(ip) = a.parse::<IpAddr>() {
+        SocketAddr::new(ip, uplink::pake::PAIR_PORT).to_string()
+    } else if a.contains(':') {
+        a.to_string() // host:port
+    } else {
+        format!("{a}:{}", uplink::pake::PAIR_PORT)
+    }
+}
+
+/// CRYPTO-REVIEW: first hub pairing. Runs the SPAKE2 exchange (uplink::pake)
+/// against the pairing window that `hub-node pair` opened, and pins the hub's
+/// hybrid key only if the hub proved it knows the same one-time code. This
+/// replaces approving the hub's fingerprint by eye.
+async fn pair_hub(State(s): St, Json(b): Json<PairHubBody>) -> ApiResult {
+    let code = uplink::pake::normalize_code(&b.code)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, &format!("{e:#}")))?;
+    let a = b.address.trim();
+    if a.is_empty() || a.len() > 253 {
+        return Err(err(StatusCode::BAD_REQUEST, "enter the hub's IP address"));
+    }
+    let addr = hub_pair_addr(a);
+    let port = s.hub_listen_port.load(std::sync::atomic::Ordering::Relaxed);
+    let run = async {
+        let mut conn = tokio::net::TcpStream::connect(&addr).await.map_err(|e| {
+            err(
+                StatusCode::BAD_GATEWAY,
+                &format!(
+                    "can't reach the hub at {addr} ({e}). Is `hub-node pair` running on the Pi?"
+                ),
+            )
+        })?;
+        // hub_id is always 1: one hub per PC (db::pair_hub).
+        uplink::pake::pc_side(&mut conn, &code, &s.identity, port, 1)
+            .await
+            .map_err(|e| match e {
+                uplink::pake::PakeError::WrongCode { .. } => {
+                    err(StatusCode::BAD_REQUEST, &e.to_string())
+                }
+                uplink::pake::PakeError::Other(e) => {
+                    err(StatusCode::BAD_GATEWAY, &format!("pairing failed: {e:#}"))
+                }
+            })
+    };
+    let paired = tokio::time::timeout(HUB_PAIR_TIMEOUT, run)
+        .await
+        .map_err(|_| {
+            err(
+                StatusCode::GATEWAY_TIMEOUT,
+                "the hub didn't finish pairing in time",
+            )
+        })??;
+    db::pair_hub(&s.db.lock().unwrap(), &paired.hub_pub, unix_now())?;
+    let fingerprint = uplink::v2::fingerprint(&paired.hub_pub);
+    tracing::info!("paired with hub {fingerprint} using its one-time code");
+    Ok(Json(json!({ "ok": true, "fingerprint": fingerprint })))
+}
+
+/// CRYPTO-REVIEW: makes a one-time phone pairing QR code. The token goes to
+/// the hub over the encrypted uplink and into the QR code, nowhere else; the
+/// hub accepts it once, until it expires. The QR also pins the hub's KeyId on
+/// the phone. A phone id is reserved now (ids are never reused, so an unused
+/// one is just skipped).
+async fn phone_ticket(State(s): St) -> ApiResult {
+    use uplink::pairlink::{PHONE_TICKET_TTL_SECS, PhoneQr, qr_svg};
+    let hub_key_id = db::paired_hub(&s.db.lock().unwrap())?
+        .map(|(_, k)| crypto_sharecrate::crypto::v2::identity::key_id(&k))
+        .ok_or_else(|| err(StatusCode::CONFLICT, "pair the hub first"))?;
+    let hub_ip = {
+        let hub = s.hub.lock().unwrap();
+        hub.addr.filter(|_| hub.connected)
+    }
+    .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"))?;
+    let mut token = [0u8; 16];
+    uplink::getrandom(&mut token)?;
+    let phone_id = db::next_phone_id(&s.db.lock().unwrap())?;
+    if !s.send_to_hub(PcMsg::PhoneTicket {
+        token: hex::encode(token),
+        phone_id,
+        ttl_secs: PHONE_TICKET_TTL_SECS,
+    }) {
+        return Err(err(StatusCode::SERVICE_UNAVAILABLE, "hub is offline"));
+    }
+    let qr = PhoneQr {
+        addr: std::net::SocketAddr::new(hub_ip, uplink::app::APP_PORT).to_string(),
+        hub_key_id,
+        token,
+        expires: unix_now() + i64::from(PHONE_TICKET_TTL_SECS),
+    };
+    let uri = qr.to_uri();
+    Ok(Json(json!({
+        "phone_id": phone_id,
+        "uri": uri,
+        "svg": qr_svg(&uri)?,
+        "expires": qr.expires,
+        "hub_fingerprint": uplink::v2::fingerprint_of_key_id(&hub_key_id),
     })))
 }
 
@@ -641,6 +758,121 @@ mod tests {
         );
         // Nothing left to approve.
         assert!(approve_key(&state, &node_key, None, true).is_err());
+    }
+
+    fn test_state() -> Arc<AppState> {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init(&conn).unwrap();
+        Arc::new(AppState::new(conn, &[9u8; 32], "t".repeat(64)))
+    }
+
+    /// Plays `hub-node pair`: one SPAKE2 run on a local port.
+    async fn fake_hub_window(
+        code: String,
+    ) -> (
+        String,
+        tokio::task::JoinHandle<Result<uplink::pake::PcPaired, String>>,
+    ) {
+        use crypto_sharecrate::crypto::v2::identity::HybridIdentity;
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap().to_string();
+        let task = tokio::spawn(async move {
+            let (mut c, _) = l.accept().await.unwrap();
+            let hub = HybridIdentity::from_seed(&[5u8; 32]);
+            uplink::pake::hub_side(&mut c, &code, &hub, 2)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        (addr, task)
+    }
+
+    #[tokio::test]
+    async fn hub_pairs_with_the_right_code_only() {
+        use crypto_sharecrate::crypto::v2::identity::HybridIdentity;
+        let st = test_state();
+        let code = uplink::pake::new_code().unwrap();
+
+        // Wrong code: refused, nothing pinned.
+        let (addr, hub) = fake_hub_window(code.clone()).await;
+        let e = pair_hub(
+            State(st.clone()),
+            Json(PairHubBody {
+                address: addr,
+                code: "1111-2222-3333".into(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(e.0, StatusCode::BAD_REQUEST, "{}", e.message());
+        assert!(hub.await.unwrap().is_err());
+        assert!(db::paired_hub(&st.db.lock().unwrap()).unwrap().is_none());
+
+        // Right code (typed with spaces): both sides pin each other.
+        let (addr, hub) = fake_hub_window(code.clone()).await;
+        let Json(v) = pair_hub(
+            State(st.clone()),
+            Json(PairHubBody {
+                address: addr,
+                code: code.replace('-', " "),
+            }),
+        )
+        .await
+        .unwrap();
+        let hub_pub = *HybridIdentity::from_seed(&[5u8; 32]).public_key();
+        assert_eq!(v["fingerprint"], uplink::v2::fingerprint(&hub_pub));
+        let (_, pinned) = db::paired_hub(&st.db.lock().unwrap()).unwrap().unwrap();
+        assert_eq!(*pinned, hub_pub);
+        let pc = hub.await.unwrap().unwrap();
+        assert_eq!(*pc.pc_pub, *st.identity.public_key());
+        assert_eq!((pc.hub_listen_port, pc.hub_id), (7400, 1));
+    }
+
+    #[test]
+    fn hub_pair_address_gets_the_default_port() {
+        assert_eq!(hub_pair_addr("192.168.1.20"), "192.168.1.20:7402");
+        assert_eq!(hub_pair_addr("192.168.1.20:9000"), "192.168.1.20:9000");
+        assert_eq!(hub_pair_addr("fe80::1"), "[fe80::1]:7402");
+        assert_eq!(hub_pair_addr("farmhub.local"), "farmhub.local:7402");
+    }
+
+    #[tokio::test]
+    async fn phone_qr_ticket_goes_to_the_hub_and_pins_its_key() {
+        use crypto_sharecrate::crypto::v2::identity::{HybridIdentity, key_id};
+        let st = test_state();
+        // No hub yet.
+        let e = phone_ticket(State(st.clone())).await.unwrap_err();
+        assert_eq!(e.0, StatusCode::CONFLICT);
+
+        let hub_pub = *HybridIdentity::from_seed(&[5u8; 32]).public_key();
+        db::pair_hub(&st.db.lock().unwrap(), &hub_pub, 0).unwrap();
+        // Paired but offline.
+        let e = phone_ticket(State(st.clone())).await.unwrap_err();
+        assert_eq!(e.0, StatusCode::SERVICE_UNAVAILABLE);
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        {
+            let mut hub = st.hub.lock().unwrap();
+            hub.tx = Some(tx);
+            hub.connected = true;
+            hub.addr = Some("192.168.1.20".parse().unwrap());
+        }
+        let Json(v) = phone_ticket(State(st.clone())).await.unwrap();
+        let qr = uplink::pairlink::PhoneQr::parse(v["uri"].as_str().unwrap()).unwrap();
+        assert_eq!(qr.addr, "192.168.1.20:7302");
+        assert_eq!(qr.hub_key_id, key_id(&hub_pub));
+        assert!(v["svg"].as_str().unwrap().contains("<svg"));
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            PcMsg::PhoneTicket {
+                token: hex::encode(qr.token),
+                phone_id: 1,
+                ttl_secs: uplink::pairlink::PHONE_TICKET_TTL_SECS,
+            }
+        );
+        // Each QR code reserves a new id and a new token.
+        let Json(v2) = phone_ticket(State(st)).await.unwrap();
+        assert_eq!(v2["phone_id"], 2);
+        assert_ne!(v2["uri"], v["uri"]);
     }
 
     #[tokio::test]

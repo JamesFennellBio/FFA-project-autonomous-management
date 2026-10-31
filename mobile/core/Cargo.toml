@@ -10,6 +10,7 @@ name = "farmlab_mobile_core"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+hex.workspace = true
 crypto-sharecrate.workspace = true
 uplink = { path = "../../uplink" }
 tokio.workspace = true
@@ -22,4 +23,3 @@ uniffi = { version = "=0.31.2", features = ["tokio"] }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
-hex.workspace = true

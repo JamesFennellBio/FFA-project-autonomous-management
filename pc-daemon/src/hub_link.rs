@@ -164,10 +164,8 @@ async fn handle(
     let mut peer = PeerSessions::new();
     let mut queue: Vec<PcMsg> = Vec::new();
     let mut registered = false;
-    // Set once the peer proves it's the paired hub (HELLO signed with the
-    // pinned key) or the hub a person approved (its pairing request gets an
-    // accept). A signed pairing request from any other key does NOT count:
-    // anyone can make keys.
+    // Set once the peer proves it's the paired hub (HELLO2 signed with the
+    // pinned key). Nothing else counts: anyone can make keys.
     let mut proven = false;
     let unproven_deadline = Instant::now() + UNPROVEN_LIFETIME;
 
@@ -374,13 +372,11 @@ mod tests {
         Arc::new(AppState::new(conn, &[5u8; 32], "t".repeat(64)))
     }
 
-    /// A connection that sends a validly signed pairing request from a
-    /// throwaway key (what an attacker can do), then sits idle.
-    async fn junk(addr: SocketAddr, seed: u8) -> TcpStream {
-        let mut s = TcpStream::connect(addr).await.unwrap();
-        let req = LinkCore::new(&[seed; 32], None).pair_request(None);
-        write_frame(&mut s, &req).await.unwrap();
-        s
+    /// A connection that never proves it's the hub (what an attacker can
+    /// do), and just sits idle. (A pairing request would be dropped at once:
+    /// the hub pairs with the one-time code, not on this port.)
+    async fn junk(addr: SocketAddr) -> TcpStream {
+        TcpStream::connect(addr).await.unwrap()
     }
 
     /// True if the server closes `s` within `wait`. Closing is checked with
@@ -405,11 +401,11 @@ mod tests {
     #[tokio::test]
     async fn junk_connections_are_evicted_for_new_ones() {
         let addr = start(state()).await;
-        let mut first = junk(addr, 10).await;
+        let mut first = junk(addr).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         let mut others = Vec::new();
-        for i in 0..MAX_CONNECTIONS as u8 {
-            others.push(junk(addr, 11 + i).await);
+        for _ in 0..MAX_CONNECTIONS {
+            others.push(junk(addr).await);
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert!(
@@ -446,8 +442,8 @@ mod tests {
 
         // a flood of junk connections can't push it out
         let mut junks = Vec::new();
-        for i in 0..(MAX_CONNECTIONS as u8 * 2) {
-            junks.push(junk(addr, 40 + i).await);
+        for _ in 0..MAX_CONNECTIONS * 2 {
+            junks.push(junk(addr).await);
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert!(stays_open(&mut hub).await, "verified hub keeps its slot");
