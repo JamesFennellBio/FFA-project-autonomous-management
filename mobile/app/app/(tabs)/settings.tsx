@@ -93,7 +93,7 @@ export default function Settings() {
             keyboardType="numbers-and-punctuation"
           />
           <Field
-            label="Hub key ID (optional, the \"phones, PC\" line of `hub-node fingerprint`)"
+            label={'Hub key ID (optional, the "phones, PC" line of `hub-node fingerprint`)'}
             placeholder="64 hex characters"
             value={key}
             onChangeText={setKey}
