@@ -164,11 +164,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: trunk,tauri-cli
-      # Installed here, natively: Tauri would otherwise run brew itself, which
-      # fails when its CLI binary runs under Rosetta.
-      - name: xcodegen and CocoaPods
-        run: brew install xcodegen cocoapods
+          tool: trunk
+      # Built from source so it's a native arm64 binary: the prebuilt one runs
+      # under Rosetta, where the brew installs Tauri does (xcodegen,
+      # libimobiledevice, ...) fail.
+      - name: tauri-cli (arm64)
+        run: cargo install tauri-cli --version "^2" --locked
       - name: cargo tauri ios build (simulator)
         working-directory: app/src-tauri
         run: |
