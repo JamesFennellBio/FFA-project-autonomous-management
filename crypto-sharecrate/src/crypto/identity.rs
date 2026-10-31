@@ -66,8 +66,12 @@ pub fn fingerprint(public_key: &[u8; PUBLIC_KEY_LEN]) -> [u8; 8] {
 
 /// Fingerprint as `AB12-CD34-EF56-7890` (writes 19 ASCII bytes).
 pub fn fingerprint_str(public_key: &[u8; PUBLIC_KEY_LEN]) -> [u8; 19] {
+    format_fingerprint(&fingerprint(public_key))
+}
+
+/// Formats 8 fingerprint bytes as `AB12-CD34-EF56-7890` (also used by v2 keys).
+pub(crate) fn format_fingerprint(fp: &[u8; 8]) -> [u8; 19] {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let fp = fingerprint(public_key);
     let mut out = [b'-'; 19];
     let mut o = 0;
     for (i, byte) in fp.iter().enumerate() {

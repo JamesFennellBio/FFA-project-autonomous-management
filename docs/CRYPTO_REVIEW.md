@@ -90,6 +90,40 @@
   - sits in JS memory while the app runs
 - Rate limits: shares hub's 50/s signature budget; 5 verified HELLOs / 10 s per phone; requests need a valid session
 
+## v2 hybrid post-quantum protocol (`crypto/v2/`, feature `pq`)
+This is for the hub <-> PC and hub <-> phone links only. The ESP32 nodes stay on v1, because their 64/128-byte frames can't carry post-quantum keys. The code is in the crate, but the links don't use it yet; Phase 2 of the v2 rewrite wires it in.
+
+- **Identity** (`v2/identity.rs`):
+  - One 32-byte seed. HKDF-SHA256 (salt `FFA-v2-identity`) derives an Ed25519 seed (`FFA-v2 ed25519`) and an ML-DSA-65 seed ξ (`FFA-v2 ml-dsa-65`). The hub's BIP39 phrase therefore restores both keys.
+  - Public key = Ed25519 (32) ‖ ML-DSA-65 (1952) = 1984 bytes.
+  - `KeyId` = SHA-256(`FFA-v2-KEYID` ‖ public key). The fingerprint is the first 8 bytes of the KeyId.
+- **Signatures:**
+  - Both schemes sign d = SHA-512(`FFA-v2-SIG` ‖ len ‖ label ‖ (len32 ‖ part)…).
+  - Ed25519(d) ‖ ML-DSA-65 deterministic (d, ctx = label) = 3373 bytes.
+  - `verify` checks **both** (`verify_strict` for Ed25519) and fails if either fails. Both are always evaluated.
+  - Signing the 64-byte digest keeps the crate heap-free; SHA-512's collision resistance (256-bit) is above ML-DSA-65's target.
+- **Handshake** (`v2/handshake.rs`):
+  - HELLO2 (4608 B) carries an X25519 ephemeral key and an ML-KEM-768 encapsulation key. HELLO-ACK2 (4516 B) carries an X25519 key and the ML-KEM ciphertext. Both are hybrid-signed, and the ACK signature covers the whole HELLO2.
+  - Keys = HKDF-SHA256(ikm = X25519 secret ‖ ML-KEM secret, salt = SHA-256(`FFA-TRANSCRIPT-v2` ‖ KeyId_I ‖ KeyId_R ‖ HELLO2 ‖ ACK2)).
+  - Confidentiality holds while either X25519 or ML-KEM holds. Both parties' KeyIds in the salt bind the keys to the identities.
+  - The responder verifies the signature before any X25519 or ML-KEM work. The peer's encapsulation key goes through FIPS 203's modulus check (`EncapsulationKey::new`).
+  - The all-zero X25519 result is rejected, as in v1.
+- **Randomness:**
+  - The crate stays sans-IO: the caller passes 112 random bytes per handshake side.
+  - ML-KEM uses the deterministic keygen and encapsulation entry points, which are safe **only** if those bytes are fresh from a CSPRNG every time.
+- **Responder** (`PeerSessions::on_hello_v2`): the same nonce replay list and pending-session key confirmation as v1. The bookkeeping is shared code (`admit`).
+- **Sessions:** the same ChaCha20-Poly1305 `Session`, but v2 sessions rekey after `V2_MAX_MSGS` = 1000 frames per direction or 1 hour. v1 stays at 10.
+- **Pairing** (`v2/pairing.rs`):
+  - PAIR_REQUEST2 carries the hybrid key and an optional QR-ticket proof: HMAC-SHA256(token, `FFA-v2-TICKET` ‖ device key ‖ hub KeyId). The proof is inside the signed bytes, so it can't be lifted onto another device's request. It also names the hub, so it can't be relayed to another hub.
+  - `verify_ticket` is constant-time. Burning the token after one use and expiring it are the caller's job (Phase 3).
+  - PAIR_ACCEPT2's signature covers the device's KeyId.
+- **Initiator** (`v2/link.rs`, `LinkCore`):
+  - The v2 counterpart of `NodeCore`. A pinned responder KeyId (from the QR code or the SPAKE2 pairing) refuses any other responder with `WrongPeer`.
+  - A forged ACK leaves the handshake pending.
+  - v1 handshake and pairing frames on a v2 link are rejected with `BadFrame`.
+- **No downgrade:** v2 frames use type bytes 0x10–0x13. The v1 parsers reject them and the v2 parsers reject v1 frames.
+- **Libraries:** RustCrypto `ml-dsa` 0.1.1 and `ml-kem` 0.3.3, pinned exactly, `no_std`, with the `zeroize` feature on. `hmac` 0.12. All are optional, behind `pq`, so the firmware never builds them.
+
 ## Known weaknesses
 - Node pairing without `FARMLAB_HUB_KEY` = trust-on-first-use (60 s window); hub side always needs approval
 - Keys at rest not encrypted:
@@ -151,6 +185,7 @@
   - `pinned_hub_key_rejects_other_hubs`, `saved_pairing_with_wrong_key_is_dropped_when_pinned`
   - `pair_accept_for_other_device_rejected`, `forged_pair_request_rejected`
   - `forged_hello_ack_does_not_cancel_handshake`
+- `cargo test -p crypto-sharecrate --features pq` (v2): `either_signature_half_failing_rejects`, `hybrid_sign_verify`, `tampered_hello_rejected`, `tampered_ack_rejected_and_handshake_stays_pending`, `ack_from_wrong_responder_rejected`, `v1_and_v2_frames_do_not_mix`, `replayed_hello_rejected`, `pending_session_needs_key_confirmation`, `pinned_key_id_mismatch_is_wrong_peer`, `accept_for_another_device_rejected`, `ticket_checks`, `saved_pairing_for_other_key_dropped_when_pinned`, `v2_sessions_use_v2_message_limit`, `full_flow_pair_handshake_traffic`, `large_uplink_payload`, `small_order_x25519_rejected`
 - `cargo test -p hub-node`:
   - `hello_flood_is_rate_limited`, `forged_hellos_do_not_use_up_a_nodes_allowance`
   - `unpair_clears_waiting_approval`, `pair_request_flood_is_rate_limited_and_never_stored`, `approval_for_taken_id_is_refused`
@@ -165,7 +200,8 @@
 
 | File | Line | Note |
 |------|------|------|
-| `crypto-sharecrate/Cargo.toml` | 15 | these are the only crypto dependencies in the whole system. |
+| `crypto-sharecrate/Cargo.toml` | 18 | these are the only crypto dependencies in the whole system. |
+| `crypto-sharecrate/Cargo.toml` | 26 | v2 hybrid (feature "pq") only. |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 1 | the ECDH handshake. Runs once per session (every 10 messages |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 48 | these MUST come from a CSPRNG. On the ESP32-C3, esp-hal's |
 | `crypto-sharecrate/src/crypto/handshake.rs` | 55 | StaticSecret zeroizes on drop ("zeroize" feature). It is |
@@ -181,24 +217,53 @@
 | `crypto-sharecrate/src/crypto/kdf.rs` | 1 | turns the X25519 shared secret into session keys. |
 | `crypto-sharecrate/src/crypto/kdf.rs` | 17 | SHA-256 of the signed bytes of HELLO and HELLO-ACK. It is the |
 | `crypto-sharecrate/src/crypto/kdf.rs` | 28 | HKDF-SHA256 (RFC 5869). |
+| `crypto-sharecrate/src/crypto/kdf.rs` | 46 | (v2): HKDF salt for the hybrid handshake. It covers both |
+| `crypto-sharecrate/src/crypto/kdf.rs` | 67 | (v2): HKDF-SHA256 with |
 | `crypto-sharecrate/src/crypto/mod.rs` | 1 | everything in this module is cryptography. |
 | `crypto-sharecrate/src/crypto/pairing.rs` | 1 | pairing (exchanging long-term public keys once). |
 | `crypto-sharecrate/src/crypto/pairing.rs` | 90 | the signature includes own_pub, so an accept that was |
 | `crypto-sharecrate/src/crypto/responder.rs` | 1 | responder-side session bookkeeping for one peer (the hub |
-| `crypto-sharecrate/src/crypto/responder.rs` | 86 | a HELLO nonce is 16 random bytes from the node, so a |
-| `crypto-sharecrate/src/crypto/responder.rs` | 133 | key confirmation passed. This session becomes |
+| `crypto-sharecrate/src/crypto/responder.rs` | 116 | a HELLO nonce is 16 random bytes from the node, so a |
+| `crypto-sharecrate/src/crypto/responder.rs` | 164 | key confirmation passed. This session becomes |
 | `crypto-sharecrate/src/crypto/session.rs` | 1 | an established session. Seals and opens frames with |
-| `crypto-sharecrate/src/crypto/session.rs` | 13 | rekey after this many frames in either direction. |
-| `crypto-sharecrate/src/crypto/session.rs` | 16 | rekey after this many seconds, even if few frames were sent. |
-| `crypto-sharecrate/src/crypto/session.rs` | 48 | wipe the keys when the session is replaced or dropped. |
-| `crypto-sharecrate/src/crypto/session.rs` | 54 | the 96-bit ChaCha20 nonce is |
-| `crypto-sharecrate/src/crypto/session.rs` | 113 | the "1 hour or 10 transmissions" rule. The initiator checks |
-| `crypto-sharecrate/src/crypto/session.rs` | 129 | the 12-byte header is the AEAD associated data, so the |
-| `crypto-sharecrate/src/crypto/session.rs` | 166 | bump the counter only after a successful seal, so a |
-| `crypto-sharecrate/src/crypto/session.rs` | 175 | the order matters. Cheap header checks come first, then |
-| `crypto-sharecrate/src/crypto/session.rs` | 197 | refuse anything from an expired session or past the |
-| `crypto-sharecrate/src/crypto/session.rs` | 202 | replay protection. The counter must be strictly newer |
-| `crypto-sharecrate/src/crypto/session.rs` | 226 | don't leave unauthenticated plaintext in the caller's buffer. |
+| `crypto-sharecrate/src/crypto/session.rs` | 13 | rekey after this many frames in either direction (v1 radio |
+| `crypto-sharecrate/src/crypto/session.rs` | 16 | the same limit for v2 hybrid links (hub <-> PC, hub <-> phone). |
+| `crypto-sharecrate/src/crypto/session.rs` | 20 | rekey after this many seconds, even if few frames were sent. |
+| `crypto-sharecrate/src/crypto/session.rs` | 54 | wipe the keys when the session is replaced or dropped. |
+| `crypto-sharecrate/src/crypto/session.rs` | 60 | the 96-bit ChaCha20 nonce is |
+| `crypto-sharecrate/src/crypto/session.rs` | 127 | the "1 hour or N transmissions" rule (N = 10 on radio links). The initiator checks |
+| `crypto-sharecrate/src/crypto/session.rs` | 145 | the 12-byte header is the AEAD associated data, so the |
+| `crypto-sharecrate/src/crypto/session.rs` | 182 | bump the counter only after a successful seal, so a |
+| `crypto-sharecrate/src/crypto/session.rs` | 191 | the order matters. Cheap header checks come first, then |
+| `crypto-sharecrate/src/crypto/session.rs` | 213 | refuse anything from an expired session or past the |
+| `crypto-sharecrate/src/crypto/session.rs` | 218 | replay protection. The counter must be strictly newer |
+| `crypto-sharecrate/src/crypto/session.rs` | 242 | don't leave unauthenticated plaintext in the caller's buffer. |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 1 | the v2 hybrid handshake (X25519 + ML-KEM-768, hybrid-signed). |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 71 | MUST come from a CSPRNG and must never be reused. ML-KEM's |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 80 | both ephemeral secrets zeroize on drop. |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 161 | verify the hybrid signature before any X25519 or ML-KEM work. |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 169 | EncapsulationKey::new runs FIPS 203's modulus check on |
+| `crypto-sharecrate/src/crypto/v2/handshake.rs` | 241 | the signature covers OUR hello2, the ML-KEM |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 1 | hybrid long-term identity: Ed25519 + ML-DSA-65 (FIPS 204). |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 54 | both inner keys zeroize on drop (ed25519-dalek and ml-dsa |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 63 | `seed` must come from a CSPRNG, or from the BIP39 phrase on the hub. |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 96 | hybrid signature over the length-prefixed parts (see module docs). |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 112 | the message both schemes sign. Each part is length-prefixed. |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 125 | succeeds only if **both** the Ed25519 signature |
+| `crypto-sharecrate/src/crypto/v2/identity.rs` | 158 | the identifier QR codes, config files and pairing pin. |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 31 | the pinned responder hybrid key. |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 60 | if set, pairing only accepts a responder with this KeyId |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 70 | `seed` is this device's long-term secret (Keychain or |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 83 | pin the responder ahead of time. A saved pairing for a |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 144 | true when there's no session, or the current one hit |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 184 | with a pinned KeyId, an accept from anyone |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 204 | a reply that fails verification leaves the |
+| `crypto-sharecrate/src/crypto/v2/link.rs` | 213 | v1 handshake and pairing frames are never accepted |
+| `crypto-sharecrate/src/crypto/v2/mod.rs` | 1 | the v2 hybrid post-quantum protocol (feature `pq`). |
+| `crypto-sharecrate/src/crypto/v2/pairing.rs` | 1 | v2 pairing (exchanging long-term hybrid public keys once). |
+| `crypto-sharecrate/src/crypto/v2/pairing.rs` | 68 | HMAC-SHA256 keyed by the one-time token. |
+| `crypto-sharecrate/src/crypto/v2/pairing.rs` | 127 | constant-time check that `req` proves knowledge of `token` |
+| `crypto-sharecrate/src/crypto/v2/pairing.rs` | 168 | the signature covers our KeyId, so an accept made for |
 | `crypto-sharecrate/src/lib.rs` | 13 | ` (see docs/CRYPTO_REVIEW.md). |
 | `crypto-sharecrate/src/node.rs` | 27 | the pinned responder (hub/PC) Ed25519 key. |
 | `crypto-sharecrate/src/node.rs` | 47 | if set, pairing only accepts this responder key. |
@@ -209,6 +274,10 @@
 | `crypto-sharecrate/src/node.rs` | 196 | a reply that fails verification (forged, or for |
 | `crypto-sharecrate/src/node.rs` | 202 | the old session (and its keys) is dropped here. |
 | `crypto-sharecrate/tests/protocol.rs` | 2 | these tests are the spec for the security properties. |
+| `crypto-sharecrate/tests/protocol_v2.rs` | 4 | these tests are the spec for the v2 security properties. |
+| `crypto-sharecrate/tests/protocol_v2.rs` | 123 | AND-composition. Breaking either half breaks the signature. |
+| `crypto-sharecrate/tests/protocol_v2.rs` | 291 | no downgrade in either direction. |
+| `crypto-sharecrate/tests/protocol_v2.rs` | 345 | a phone that pinned the hub's KeyId from the QR code |
 | `data-node/src/config.rs` | 38 | the hub's 64-hex-char public key (`hub-node fingerprint`). |
 | `data-node/src/main.rs` | 259 | new ECDH session every 10 messages / 1 hour ---- |
 | `data-node/src/main.rs` | 261 | ephemeral key + nonce |
@@ -264,6 +333,6 @@
 | `uplink/src/lib.rs` | 319 | used for the PC daemon's identity seed. The OS RNG fills |
 | `uplink/src/lib.rs` | 352 | OS CSPRNG (getrandom / /dev/urandom / BCryptGenRandom). |
 
-_98 tagged locations._
+_132 tagged locations._
 
 <!-- END CRYPTO-REVIEW INDEX -->

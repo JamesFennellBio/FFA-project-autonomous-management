@@ -43,6 +43,49 @@ pub fn derive_session_keys(shared_secret: &[u8; 32], transcript: &[u8; 32]) -> S
     keys
 }
 
+/// CRYPTO-REVIEW (v2): HKDF salt for the hybrid handshake. It covers both
+/// parties' [`KeyId`](super::v2::identity::KeyId)s as well as the signed bytes
+/// of HELLO2 and HELLO-ACK2 (both ephemeral X25519 keys, the ML-KEM
+/// encapsulation key and ciphertext, nonces, node id, epoch). That binds the
+/// keys to who is talking as well as to what was said.
+#[cfg(feature = "pq")]
+pub fn transcript_hash_v2(
+    initiator_key_id: &[u8; 32],
+    responder_key_id: &[u8; 32],
+    hello_signed: &[u8],
+    ack_signed: &[u8],
+) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(b"FFA-TRANSCRIPT-v2");
+    h.update(initiator_key_id);
+    h.update(responder_key_id);
+    h.update(hello_signed);
+    h.update(ack_signed);
+    h.finalize().into()
+}
+
+/// CRYPTO-REVIEW (v2): HKDF-SHA256 with
+/// - IKM  = X25519 shared secret (32) || ML-KEM-768 shared secret (32)
+/// - salt = [`transcript_hash_v2`]
+/// - info = a v2 label for each direction
+///
+/// Concatenating both secrets into the IKM means the keys stay secret while
+/// either X25519 or ML-KEM does. The ML-KEM ciphertext and the X25519 keys are
+/// also in the salt, so the output is bound to this exact exchange.
+#[cfg(feature = "pq")]
+pub fn derive_session_keys_v2(ikm: &[u8; 64], transcript: &[u8; 32]) -> SessionKeys {
+    let hk = Hkdf::<Sha256>::new(Some(transcript), ikm);
+    let mut keys = SessionKeys {
+        init_to_resp: [0u8; KEY_LEN],
+        resp_to_init: [0u8; KEY_LEN],
+    };
+    hk.expand(b"FFA-v2 key init->resp", &mut keys.init_to_resp)
+        .expect("hkdf length");
+    hk.expand(b"FFA-v2 key resp->init", &mut keys.resp_to_init)
+        .expect("hkdf length");
+    keys
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
