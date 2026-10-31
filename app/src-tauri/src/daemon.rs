@@ -1,7 +1,6 @@
 //! Desktop backend: the pc-daemon REST API on 127.0.0.1:7401.
 //!
-//! Port of the Electron main process (frontend/electron/main.ts): the API
-//! token is read here and added to each request, so the web page (WASM)
+//! The API token is read here and added to each request, so the web page (WASM)
 //! never sees it, and only `/api/...` paths with known methods are passed on.
 
 use std::path::PathBuf;

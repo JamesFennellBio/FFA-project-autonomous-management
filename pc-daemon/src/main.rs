@@ -4,7 +4,7 @@
 //!   with the same ECDH + ChaCha20-Poly1305 protocol the nodes use.
 //! - Stores everything in SQLite (full history).
 //! - Passes the desktop app's recipe edits to the hub, which runs them.
-//! - Serves the REST API for the Electron app on 127.0.0.1:7401 only.
+//! - Serves the REST API for the desktop app on 127.0.0.1:7401 only.
 
 mod api;
 mod auth;

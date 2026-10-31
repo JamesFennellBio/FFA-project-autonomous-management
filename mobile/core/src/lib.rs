@@ -1,8 +1,8 @@
 //! The phone app's link to the hub, in Rust so the phone runs the exact same
 //! protocol and crypto code (crypto-sharecrate) as the hub and PC.
-//! The React Native app calls it through uniffi (see mobile/native).
+//! The Tauri app (app/src-tauri/src/phone.rs) calls it on iOS and Android.
 //!
-//! The JavaScript side only ever sees JSON requests and replies. Everything in
+//! The app's UI only ever sees JSON requests and replies. Everything in
 //! between happens here:
 //! - pairing, and the v2 hybrid handshake (Ed25519 + ML-DSA-65 signatures,
 //!   X25519 + ML-KEM-768 keys)
@@ -10,7 +10,7 @@
 //! - the TCP connection and retries
 //!
 //! ```text
-//! JS:   client.request('{"type":"channels"}')  ->  '{"channels":[...],"next":null,...}'
+//! App:  client.request('{"type":"channels"}')  ->  '{"channels":[...],"next":null,...}'
 //! Rust: HELLO2/HELLO-ACK2 when needed -> seal {"id":n,"req":...} -> TCP -> open reply
 //! ```
 
@@ -26,8 +26,6 @@ use tokio::sync::Mutex;
 use uplink::app::MAX_APP_PLAINTEXT;
 use uplink::{read_frame, write_frame};
 
-uniffi::setup_scaffolding!();
-
 /// How long to wait for each reply before sending again.
 const REPLY_TIMEOUT: Duration = Duration::from_millis(2500);
 /// How long to wait for the TCP connection to the hub.
@@ -37,8 +35,7 @@ const TRIES: usize = 3;
 /// How often a pairing request is repeated while waiting for approval.
 const PAIR_RETRY: Duration = Duration::from_secs(3);
 
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-#[uniffi(flat_error)]
+#[derive(Debug, thiserror::Error)]
 pub enum MobileError {
     #[error("{0}")]
     Invalid(String),
@@ -64,7 +61,7 @@ fn net(e: impl std::fmt::Display) -> MobileError {
 }
 
 /// What the app saves after pairing.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhonePairing {
     pub phone_id: u16,
     /// CRYPTO-REVIEW: the hub's hybrid key (Ed25519 + ML-DSA-65, 3968 hex
@@ -94,12 +91,11 @@ fn to_pairing(p: &LinkPairing) -> PhonePairing {
     }
 }
 
-/// Makes a new identity for this phone (64 hex characters). The app keeps it
-/// in the phone's secure storage (iOS Keychain / Android Keystore).
+/// Makes a new identity for this phone (64 hex characters). The app saves it
+/// in its private data folder (app/src-tauri/src/phone.rs).
 ///
-/// CRYPTO-REVIEW: 32 bytes from the phone's OS CSPRNG. The seed passes
-/// through JavaScript once, to be saved; it's the phone's long-term secret.
-#[uniffi::export]
+/// CRYPTO-REVIEW: 32 bytes from the phone's OS CSPRNG. It's the phone's
+/// long-term secret and stays in Rust; the web view never sees it.
 pub fn new_identity_seed() -> Result<String, MobileError> {
     let mut seed = [0u8; 32];
     uplink::getrandom(&mut seed).map_err(invalid)?;
@@ -107,14 +103,12 @@ pub fn new_identity_seed() -> Result<String, MobileError> {
 }
 
 /// The fingerprint the desktop app shows for this phone's pairing request.
-#[uniffi::export]
 pub fn fingerprint_of_seed(seed_hex: String) -> Result<String, MobileError> {
     let id = HybridIdentity::from_seed(&seed_from_hex(&seed_hex)?);
     Ok(uplink::v2::fingerprint(id.public_key()))
 }
 
 /// Fingerprint of a hub key (its KeyId or its full key, hex), e.g. after pairing.
-#[uniffi::export]
 pub fn fingerprint_of_key(public_key_hex: String) -> Result<String, MobileError> {
     Ok(uplink::v2::fingerprint_of_key_id(&key_id_from_hex(
         &public_key_hex,
@@ -122,7 +116,7 @@ pub fn fingerprint_of_key(public_key_hex: String) -> Result<String, MobileError>
 }
 
 /// What a phone pairing QR code says, for showing before pairing.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingQr {
     /// "ip:port" to pass to [`HubClient::new`].
     pub hub_addr: String,
@@ -135,7 +129,6 @@ pub struct PairingQr {
 }
 
 /// Reads a phone pairing QR code (`farmlab://pair?...`).
-#[uniffi::export]
 pub fn parse_pairing_qr(uri: String) -> Result<PairingQr, MobileError> {
     let qr = uplink::pairlink::PhoneQr::parse(&uri).map_err(invalid)?;
     Ok(PairingQr {
@@ -154,7 +147,6 @@ struct Inner {
 
 /// One connection to one hub. Requests are sent one at a time (callers that
 /// overlap just wait their turn).
-#[derive(uniffi::Object)]
 pub struct HubClient {
     hub_addr: String,
     start: Instant,
@@ -167,7 +159,6 @@ impl HubClient {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
 impl HubClient {
     /// `hub_addr` is "ip:port", e.g. "192.168.1.20:7302". `pairing` is what
     /// [`HubClient::pair`] returned last time (None before the first pairing).
@@ -176,7 +167,6 @@ impl HubClient {
     /// if given, is the only hub pairing will accept. Without it the phone
     /// trusts the first hub that answers (check the fingerprint). Phase 3's QR
     /// code always supplies it.
-    #[uniffi::constructor]
     pub fn new(
         seed_hex: String,
         hub_addr: String,
@@ -322,7 +312,6 @@ impl HubClient {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
 impl HubClient {
     /// Sends one request (JSON, e.g. `{"type":"channels","offset":0}`) and
     /// returns the hub's answer as JSON. A refusal from the hub comes back as

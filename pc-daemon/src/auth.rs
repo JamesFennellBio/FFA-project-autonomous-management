@@ -2,7 +2,7 @@
 //!
 //! The API only listens on 127.0.0.1, but other programs on the same PC could
 //! still call it, so it also needs a token. The token is a random file in the
-//! config dir that only this user can read; the Electron main process reads it.
+//! config dir that only this user can read; the desktop app's Rust side reads it.
 
 use std::path::Path;
 use std::sync::Arc;

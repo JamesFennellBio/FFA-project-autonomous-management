@@ -1,4 +1,4 @@
-//! REST API for the Electron app. JSON only, every route needs the bearer token.
+//! REST API for the desktop app. JSON only, every route needs the bearer token.
 //!
 //! | Method | Path                                          | What it does |
 //! |--------|-----------------------------------------------|--------------|

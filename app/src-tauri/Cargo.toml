@@ -20,8 +20,7 @@ anyhow.workspace = true
 directories.workspace = true
 hex.workspace = true
 uplink = { path = "../../uplink" }
-# The phone backend: v2 crypto + TCP link to the hub, the same Rust core the
-# Expo app used.
+# The phone backend: v2 crypto + TCP link to the hub.
 farmlab-mobile-core = { path = "../../mobile/core" }
 # Plain HTTP to the daemon on 127.0.0.1 only, so no TLS.
 reqwest = { version = "0.12", default-features = false, features = ["json"] }

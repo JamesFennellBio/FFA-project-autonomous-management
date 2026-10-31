@@ -4,7 +4,7 @@
 - IoT farm / lab management system
 - ESP32-C3 data nodes → Raspberry Pi 3B hub → PC daemon → desktop app
 - Phone app (iOS + Android) talks to the hub directly
-- v2 app (`app/`): one Rust codebase (Tauri + Leptos/WASM) for desktop and phone; Lab / Farm / Home modes, dark mode, Boomer Mode, Lite / Normal performance. The Electron and Expo apps remain until it replaces them
+- App (`app/`): one Rust codebase (Tauri + Leptos/WASM) for desktop (Linux, Windows, macOS) and phone (iOS, Android); Lab / Farm / Home modes, dark mode, Boomer Mode, Lite / Normal performance
 - Recipes (if-this-then-that) built with Blockly blocks on the phone or desktop, run on the hub
 - Demo channels: siren, solenoid, photoresistor, DS18B20 thermometer
 - Website: `website/` (Farm / Lab versions, editable in the browser)
@@ -37,14 +37,11 @@
 - `pc-daemon/`: PC daemon, SQLite, REST API, passes recipe edits to the hub (Rust)
 - `uplink/`: hub ↔ PC message types
 - `node-sim/`: fake node for testing without hardware
-- `app/`: v2 desktop + phone app, Tauri + Leptos (see `app/README.md`)
-- `frontend/`: Electron + React + TypeScript (v1, being replaced by `app/`)
-- `mobile/core/`: phone side of the hub link (Rust, uniffi)
-- `mobile/native/`: React Native module built from `mobile/core`
-- `mobile/app/`: Expo / React Native app
+- `app/`: desktop + phone app, Tauri + Leptos (see `app/README.md`)
+- `mobile/core/`: phone side of the hub link (Rust)
 - `database/`: SQLite schemas
 - `USER_MANUAL.md`: wiring, flashing, setup
-- `mobile/README.md`: building the phone app
+- `mobile/README.md`: the phone side
 
 ## Run on one PC (no hardware)
 - `cargo build --workspace`
@@ -52,7 +49,7 @@
 - `cp hub-node/hub.example.toml /tmp/hub.toml`, set `data_dir = "/tmp/farmlab-hub"`
 - `cargo run -p hub-node -- --config /tmp/hub.toml init`
 - `cargo run -p hub-node -- --config /tmp/hub.toml`
-- `cd app/src-tauri && cargo tauri dev` (v2 app; or the v1 Electron app: `cd frontend && npm install && npm run dev`)
+- `cd app/src-tauri && cargo tauri dev`
 - In another terminal: `cargo run -p hub-node -- --config /tmp/hub.toml pair` → Pairing → Add hub → `127.0.0.1` + the code
 - `cargo run -p node-sim -- --state /tmp/sim1.json --pair --hub-key <hub public key>` → approve the node on the Pairing page
 - Phone without a phone: Pairing → Add phone → Copy link, then `cargo run -p farmlab-mobile-core --example phone -- --state /tmp/phone.json pair-qr '<link>'` and `... --hub 127.0.0.1:7302 ask '{"type":"channels"}'`

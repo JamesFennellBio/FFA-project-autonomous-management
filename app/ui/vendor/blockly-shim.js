@@ -2,8 +2,8 @@
 // defines the blocks and draws them. Converting blocks <-> recipe JSON is in
 // Rust (app/ui/src/recipe_edit.rs), so it's tested and never runs code.
 //
-// Same block types as the old editors (frontend/src/recipes/blocks.ts,
-// mobile/app/src/recipes/editorHtml.ts), so saved recipes still open.
+// Same block types as the v1 desktop and phone editors, so recipes saved
+// with them still open.
 (function () {
   "use strict";
   let lists = { sensors: [], outputs: [] };

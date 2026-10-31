@@ -76,8 +76,7 @@
 - Firewall: allow TCP 7400 from the Pi (API on 7401 stays localhost-only)
 - Pi firewall (if any): allow TCP 7302 (phones) and, while pairing, TCP 7402
 - Run at login (Linux): `deploy/farmlab-daemon.service`
-- App (v2): `cd app/src-tauri && cargo tauri build` → installer in `target/release/bundle/` (setup: `app/README.md`)
-- Old Electron app (until v2 replaces it): Node.js 20+, `cd frontend && npm install && npm run dev`
+- App: `cd app/src-tauri && cargo tauri build` → installer in `target/release/bundle/` (setup: `app/README.md`), or download it from the latest CI run
 
 ## Pairing
 - Only step where a person decides trust
@@ -97,11 +96,10 @@
   - Node logs `PAIRED as node 1 with hub 23C8-…` → match the app sidebar
 - Phone → hub, by QR code:
   - Desktop Pairing → Add phone → QR code (hub must be online)
-  - scan it with the phone app → paired, no approval click
+  - phone: Settings → Scan QR (or paste the link from Copy link) → paired, no approval click
   - works once, for 5 minutes; a hub restart cancels open codes
   - the code also tells the phone which hub to trust, so it can't be fooled by another hub
   - the QR is a key: don't let others photograph it while it's open
-  - (the scanner comes with the v2 phone app; until then use the manual way)
 - Phone → hub, manually:
   - Phone Settings → hub IP → Pair with hub
   - Desktop Pairing → "Phone app" → match fingerprint → name → Approve

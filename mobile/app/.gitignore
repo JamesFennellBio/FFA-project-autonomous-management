@@ -1,8 +1,0 @@
-node_modules/
-.expo/
-dist/
-# `expo run:android` / `expo run:ios` generate these (prebuild).
-android/
-ios/
-# Made by scripts/bundle-blockly.mjs on npm install.
-src/recipes/blocklyBundle.generated.ts

@@ -1,0 +1,5 @@
+/.build
+/.deps
+/xtool
+/Packages
+.swiftpm/

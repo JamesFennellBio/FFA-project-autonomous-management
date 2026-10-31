@@ -2,12 +2,10 @@
 name = "farmlab-mobile-core"
 version.workspace = true
 edition.workspace = true
-description = "Phone side of the hub link (pairing, v2 hybrid handshake, encrypted requests over TCP), called from the React Native app through uniffi"
+description = "Phone side of the hub link (pairing, v2 hybrid handshake, encrypted requests over TCP), used by the Tauri app on iOS and Android"
 
 [lib]
 name = "farmlab_mobile_core"
-# lib: tests and examples. cdylib: Android (.so). staticlib: iOS (.a).
-crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 hex.workspace = true
@@ -16,8 +14,6 @@ uplink = { path = "../../uplink" }
 tokio.workspace = true
 serde_json.workspace = true
 thiserror = "2"
-# Must match the uniffi-bindgen-react-native version in mobile/native/package.json.
-uniffi = { version = "=0.31.2", features = ["tokio"] }
 
 [dev-dependencies]
 anyhow.workspace = true
