@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spec sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+.fl{--bg:#F1F1EF;--panel:#FAFAF8;--surface:#FFFFFF;--surface-2:rgba(20,20,18,.045);--raised:#FFFFFF;--border:rgba(20,20,18,.10);--border-strong:rgba(20,20,18,.20);--dot:rgba(20,20,18,.11);--text:#171717;--muted:#4D4D4D;--faint:#6B6B6B;--bad:#D92D20;--bad-soft:rgba(217,45,32,.1);--warn:#A85B00;--warn-soft:rgba(168,91,0,.1);--shadow-1:none;--shadow-2:0 0 0 1px rgba(20,20,18,.08),0 1px 1px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08),0 24px 48px rgba(0,0,0,.06);--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-chron:cubic-bezier(.41,.66,.36,.86);--ease:var(--ease-out);--ease-emph:var(--ease-out);font-family:Geist,system-ui,sans-serif;font-size:14px;color:var(--text);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;background:var(--bg)}
+.m-lab{--accent:#3B82F6;--accent-strong:#2563EB;--accent-ink:#FFFFFF;--accent-soft:rgba(59,130,246,.12);--accent-text:#0A4FC4}
+.m-farm{--accent:#2FBF71;--accent-strong:#2FBF71;--accent-ink:#000000;--accent-soft:rgba(47,191,113,.14);--accent-text:#11693B}
+.m-home{--accent:#FF8A3D;--accent-strong:#FF8A3D;--accent-ink:#000000;--accent-soft:rgba(255,138,61,.15);--accent-text:#A3460A}
+.dark{--bg:#121315;--panel:#17181A;--surface:#1C1D20;--surface-2:rgba(236,233,226,.05);--raised:#202124;--border:rgba(236,233,226,.09);--border-strong:rgba(236,233,226,.18);--dot:rgba(236,233,226,.075);--text:#F2F1EE;--muted:#A9A7A1;--faint:#8A8883;--bad:#FF6B5E;--bad-soft:rgba(255,107,94,.13);--warn:#F5A524;--warn-soft:rgba(245,165,36,.12);--shadow-2:0 0 0 1px rgba(236,233,226,.10),0 8px 24px rgba(0,0,0,.45),0 24px 64px rgba(0,0,0,.4);color:var(--text)}
+.dark.m-lab,.dark .m-lab{--accent-text:#8DB6FF;--accent-soft:rgba(59,130,246,.16)}
+.dark.m-farm,.dark .m-farm{--accent-text:#6BE3A2;--accent-soft:rgba(47,191,113,.15)}
+.dark.m-home,.dark .m-home{--accent-text:#FFB27A;--accent-soft:rgba(255,138,61,.15)}
+.sun{--bg:#FFFFFF;--panel:#FFFFFF;--surface:#FFFFFF;--surface-2:rgba(0,0,0,.06);--raised:#FFFFFF;--border:rgba(0,0,0,.28);--border-strong:rgba(0,0,0,.5);--dot:rgba(0,0,0,.12);--text:#000000;--muted:#262626;--faint:#333333;--bad:#C21807;--bad-soft:rgba(194,24,7,.12);--warn:#8A4B00;--warn-soft:rgba(138,75,0,.12);color:#000;font-size:15px}
+.sun.m-farm{--accent:#14C95B;--accent-strong:#14C95B;--accent-ink:#000000;--accent-soft:rgba(20,201,91,.2);--accent-text:#00702F}
+.fl .dots,.fl .panel{background:radial-gradient(circle at 1px 1px,var(--dot) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel)}
+.fl .panel{border:1px solid var(--border);border-radius:12px}
+.fl button{font:inherit;cursor:pointer}
+.fl h1,.fl h2{font-weight:500!important;letter-spacing:-.025em}
+.fl .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:none}
+.sun .card{border-width:1.5px}
+.fl .btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text);font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;box-sizing:border-box;transition:background-color 150ms ease,border-color 150ms ease,transform 150ms var(--ease-out)}
+.fl .btn:hover{background:var(--surface-2);transition-duration:0ms,0ms,150ms}
+.fl .btn:active,.fl .press:active{transform:scale(.97)}
+.fl .btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.fl .btn-primary:hover{background:var(--text);opacity:.86}
+.fl .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:4px;border:1px solid var(--border-strong);font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--faint);line-height:1}
+.fl .eyebrow{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.fl .mono{font-family:"Geist Mono",ui-monospace,monospace}
+.fl .nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:6px;color:var(--muted);font-size:13px;font-weight:500;text-decoration:none;transition:background-color 150ms ease,color 150ms ease}
+.fl .nav:hover{background:var(--surface-2);color:var(--text);transition-duration:0ms}
+.fl .nav.on{background:var(--surface-2);color:var(--text)}
+.fl .nav.on svg{color:var(--accent)}
+.fl .row{transition:background-color 150ms ease}
+.fl .row:hover{background:var(--surface-2);transition-duration:0ms}
+.fl .pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;background:transparent;color:var(--muted);white-space:nowrap;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.fl .pill.ok{color:var(--accent-text);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.fl .pill.bad{color:var(--bad);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.fl .pill.warn{color:var(--warn);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.fl .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.fl .sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border-strong);border:0;padding:0;flex:none;transition:background-color 150ms ease}
+.fl .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 200ms var(--ease-out)}
+.fl .sw.on{background:var(--accent)}
+.fl .sw.on::after{transform:translateX(14px)}
+.fl .field{height:32px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text);padding:0 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.fl .field:focus,.fl .btn:focus-visible,.fl .nav:focus-visible,.fl .sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fl .chalk-rule{border:0;border-top:1px dashed var(--border-strong);margin:0}
+.fl .tabs{position:relative;display:flex;align-items:center;height:36px}
+.fl .tab{position:relative;z-index:1;height:30px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:500;padding:0;transition:color 150ms ease}
+.fl .tab.on{color:var(--text)}
+.fl .tab-hl{position:absolute;top:3px;height:30px;border-radius:6px;background:var(--surface-2);transition:transform 150ms var(--ease-out),width 150ms var(--ease-out),opacity 150ms ease;pointer-events:none}
+.fl .tab-ul{position:absolute;bottom:-1px;height:2px;border-radius:1px;background:var(--text);transition:transform 250ms var(--ease-out),width 250ms var(--ease-out)}
+@keyframes fl-reveal{from{opacity:0;filter:blur(2px);transform:translateY(6px)}to{opacity:1;filter:none;transform:none}}
+@keyframes fl-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+@keyframes fl-shimmer{from{background-position:-200px 0}to{background-position:200px 0}}
+@keyframes fl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes fl-fade{from{opacity:0}to{opacity:1}}
+@keyframes fl-toast{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+.fl .rise{animation:fl-reveal 400ms var(--ease-chron) both}
+.fl .s1{animation-delay:40ms}.fl .s2{animation-delay:80ms}.fl .s3{animation-delay:120ms}.fl .s4{animation-delay:160ms}
+.fl .draw{stroke-dasharray:400;animation:fl-draw 600ms var(--ease-out) both}
+.fl .pop{animation:fl-pop 150ms var(--ease-out) both}
+.fl .fade{animation:fl-fade 120ms ease both}
+.fl .skel{background:linear-gradient(90deg,var(--surface-2) 0,var(--border) 50%,var(--surface-2) 100%);background-size:400px 100%;animation:fl-shimmer 1.4s linear infinite;border-radius:4px}
+.fl.boomer *,.fl.boomer *::before,.fl.boomer *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){.fl *,.fl *::before,.fl *::after{animation-duration:1ms!important;transition-duration:1ms!important}}
+</style>
+</helmet>
+<div class="fl m-farm dark dots" style="width: 1440px; min-height: 1560px; box-sizing: border-box; padding: 64px 72px; display: flex; flex-direction: column; gap: 48px">
+
+  <header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-bottom: 32px; border-bottom: 1px solid var(--border)">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <span class="eyebrow">Farm &amp; Lab · Spec v3 · Oct 2026</span>
+      <h1 style="margin: 0; font-size: 48px; line-height: 56px; letter-spacing: -0.03em">Charcoal, chalk, one accent.</h1>
+      <p style="margin: 0; font-size: 16px; line-height: 24px; color: var(--muted); max-width: 680px">Monochrome first. Separation comes from space, then from thin chalk lines, never from shadows or glow. The mode accent marks only state, action and data.</p>
+    </div>
+    <span class="mono" style="font-size: 12px; color: var(--faint)">docs/design/specs/farmlab-spec.md</span>
+  </header>
+
+  <section style="display: flex; flex-direction: column; gap: 16px">
+    <span class="eyebrow">Built from</span>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 20px; font-weight: 500; letter-spacing: -0.02em">Vercel · Geist</span><span class="pill">official tokens</span></div>
+        <hr class="chalk-rule">
+        <ul style="margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; color: var(--muted)">
+          <li>“Design in monochrome”; color only for meaning</li>
+          <li>Geist Sans + Mono, tabular numerals</li>
+          <li>Radii 6 / 8, spacing 4 → 64, 12 / 6 / 4 columns</li>
+          <li>No glass, glow, gradients or ornamental shadows</li>
+          <li>Buttons fade 150 ms; default to stillness</li>
+        </ul>
+        <span style="font-size: 12px; color: var(--faint)">Taken: type, radii, spacing, motion rules, no glass</span>
+      </div>
+      <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 20px; font-weight: 500; letter-spacing: -0.02em">Linear</span><span class="pill">approximate</span></div>
+        <hr class="chalk-rule">
+        <ul style="margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; color: var(--muted)">
+          <li>Themes from 3 inputs (base, accent, contrast) in LCH</li>
+          <li>Surfaces <span class="mono">#0f1011 → #191a1b → #28282c</span></li>
+          <li>Borders white at 5–8% alpha</li>
+          <li>Weights 400 / 510 / 590, never 700</li>
+          <li>Inverted-L chrome, dense aligned sidebar</li>
+        </ul>
+        <span style="font-size: 12px; color: var(--faint)">Taken: surface steps, sidebar, theme-from-3-inputs</span>
+      </div>
+      <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 20px; font-weight: 500; letter-spacing: -0.02em">Chronicle</span><span class="pill">approximate</span></div>
+        <hr class="chalk-rule">
+        <ul style="margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; color: var(--muted)">
+          <li>Achromatic UI; the content is the only color</li>
+          <li>Weights 400 and 500 only</li>
+          <li>Tracking −0.03em at 48+, 0 at 16 and below</li>
+          <li>Solid primary button; 1 px hairlines only</li>
+          <li>Ease <span class="mono">(.41,.66,.36,.86)</span>, no bounce</li>
+        </ul>
+        <span style="font-size: 12px; color: var(--faint)">Taken: tracking, solid primary button, easing</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px">
+    <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 16px">
+      <span class="eyebrow">Charcoal surfaces · chalk lines · dot field 20 px</span>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 64px; border-radius: 6px; background: #161719; box-shadow: inset 0 0 0 1px var(--border)"></div><span style="font-size: 12px">bg</span><span class="mono" style="font-size: 11px; color: var(--faint)">#161719</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 64px; border-radius: 6px; background: #1C1D20; box-shadow: inset 0 0 0 1px var(--border)"></div><span style="font-size: 12px">surface</span><span class="mono" style="font-size: 11px; color: var(--faint)">#1C1D20</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 64px; border-radius: 6px; background: #232428; box-shadow: inset 0 0 0 1px var(--border)"></div><span style="font-size: 12px">raised</span><span class="mono" style="font-size: 11px; color: var(--faint)">#232428</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 64px; border-radius: 6px; background: #F2F1EE"></div><span style="font-size: 12px">text · chalk</span><span class="mono" style="font-size: 11px; color: var(--faint)">#F2F1EE</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 4px">
+        <div style="display: flex; align-items: center; gap: 16px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">border 10%</span><div style="flex: 1; border-top: 1px solid var(--border)"></div></div>
+        <div style="display: flex; align-items: center; gap: 16px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">strong 20%</span><div style="flex: 1; border-top: 1px solid var(--border-strong)"></div></div>
+        <div style="display: flex; align-items: center; gap: 16px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">section, dashed</span><div style="flex: 1; border-top: 1px dashed var(--border-strong)"></div></div>
+      </div>
+      <div style="display: flex; gap: 24px; font-size: 14px"><span>Primary <span class="mono" style="color: var(--faint)">#F2F1EE</span></span><span style="color: var(--muted)">Secondary <span class="mono" style="color: var(--faint)">#A9A7A1</span></span><span style="color: var(--faint)">Tertiary <span class="mono">#8A8883</span></span></div>
+    </div>
+    <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+      <span class="eyebrow">Controls</span>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center"><button class="btn btn-primary">Primary</button><button class="btn">Secondary</button><button class="btn" style="border-color: transparent; color: var(--muted)">Ghost</button></div>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted)">Hub address<input class="field" value="192.168.1.40"></label>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap"><span class="pill ok"><span class="dot"></span>Online</span><span class="pill warn"><span class="dot"></span>Low battery</span><span class="pill bad"><span class="dot"></span>Offline</span><span class="pill">Idle</span></div>
+      <div style="display: flex; gap: 12px; align-items: center; font-size: 13px; color: var(--muted)"><button class="sw on" aria-label="Example on"></button>On<button class="sw" aria-label="Example off"></button>Off</div>
+      <nav aria-label="Example navigation" style="display: flex; flex-direction: column; gap: 2px; padding-top: 4px">
+        <a class="nav on" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Active nav</a>
+        <a class="nav" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>Inactive nav</a>
+      </nav>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 16px">
+    <span class="eyebrow">Mode accents · state, action and data only</span>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+      <div class="card m-lab" style="padding: 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 16px; font-weight: 500">Lab</span><span class="pill ok"><span class="dot"></span>Blue</span></div>
+        <svg viewBox="0 0 200 48" width="100%" height="48" aria-hidden="true"><path d="M0 36 C30 34 40 14 70 18 S110 40 140 30 S180 8 200 10" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round"/></svg>
+        <div style="display: flex; gap: 8px; align-items: center"><span style="height: 28px; padding: 0 12px; border-radius: 6px; background: var(--accent-strong); color: var(--accent-ink); font-size: 13px; font-weight: 500; display: inline-flex; align-items: center">Fill</span><button class="sw on" aria-label="Lab switch"></button></div>
+        <span class="mono" style="font-size: 11px; color: var(--faint)">#3B82F6 · fill #2563EB · text #8DB6FF</span>
+      </div>
+      <div class="card m-farm" style="padding: 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 16px; font-weight: 500">Farm</span><span class="pill ok"><span class="dot"></span>Green</span></div>
+        <svg viewBox="0 0 200 48" width="100%" height="48" aria-hidden="true"><path d="M0 36 C30 34 40 14 70 18 S110 40 140 30 S180 8 200 10" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round"/></svg>
+        <div style="display: flex; gap: 8px; align-items: center"><span style="height: 28px; padding: 0 12px; border-radius: 6px; background: var(--accent-strong); color: var(--accent-ink); font-size: 13px; font-weight: 500; display: inline-flex; align-items: center">Fill</span><button class="sw on" aria-label="Farm switch"></button></div>
+        <span class="mono" style="font-size: 11px; color: var(--faint)">#2FBF71 · black ink · text #6BE3A2</span>
+      </div>
+      <div class="card m-home" style="padding: 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 16px; font-weight: 500">Home</span><span class="pill ok"><span class="dot"></span>Orange</span></div>
+        <svg viewBox="0 0 200 48" width="100%" height="48" aria-hidden="true"><path d="M0 36 C30 34 40 14 70 18 S110 40 140 30 S180 8 200 10" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round"/></svg>
+        <div style="display: flex; gap: 8px; align-items: center"><span style="height: 28px; padding: 0 12px; border-radius: 6px; background: var(--accent-strong); color: var(--accent-ink); font-size: 13px; font-weight: 500; display: inline-flex; align-items: center">Fill</span><button class="sw on" aria-label="Home switch"></button></div>
+        <span class="mono" style="font-size: 11px; color: var(--faint)">#FF8A3D · black ink · text #FFB27A</span>
+      </div>
+      <div class="card sun m-farm" style="padding: 20px; display: flex; flex-direction: column; gap: 12px; background: #FFFFFF">
+        <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 16px; font-weight: 600">Sunlight</span><span class="pill ok"><span class="dot"></span>Farm phone</span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--muted)">North field soil</span><span style="font-size: 30px; font-weight: 600; letter-spacing: -0.02em">41.8 %</span></div>
+        <span style="height: 44px; border-radius: 8px; background: var(--accent); color: #000; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center">Open valve</span>
+        <span class="mono" style="font-size: 11px; color: var(--muted)">#FFF / #000 · #14C95B black ink 9.5:1 · 1.5 px lines</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px">
+    <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+      <span class="eyebrow">Type · Geist 400 / 500 · numbers 600</span>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">48 / 56 −0.03em</span><span style="font-size: 48px; line-height: 56px; font-weight: 500; letter-spacing: -0.03em">Overview</span></div>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">28 / 36 −0.025em</span><span style="font-size: 28px; line-height: 36px; font-weight: 500; letter-spacing: -0.025em">North field</span></div>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">20 / 26 −0.02em</span><span style="font-size: 20px; line-height: 26px; font-weight: 500; letter-spacing: -0.02em">Soil moisture</span></div>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">14 / 20</span><span style="font-size: 14px; line-height: 20px">Last reading 12 seconds ago</span></div>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">12 / 16</span><span style="font-size: 12px; line-height: 16px; color: var(--muted)">Node 3 · LoRa</span></div>
+      <div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 120px; font-size: 11px; color: var(--faint)">mono 11 +0.12em</span><span class="eyebrow">Live readings</span></div>
+    </div>
+    <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+      <span class="eyebrow">Shape · space · motion · ease-out (.23, 1, .32, 1)</span>
+      <div style="display: flex; gap: 12px">
+        <div style="width: 64px; height: 44px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; place-items: center; font-size: 11px; color: var(--muted)">6</div>
+        <div style="width: 64px; height: 44px; border: 1px solid var(--border-strong); border-radius: 8px; display: grid; place-items: center; font-size: 11px; color: var(--muted)">8</div>
+        <div style="width: 64px; height: 44px; border: 1px solid var(--border-strong); border-radius: 12px; display: grid; place-items: center; font-size: 11px; color: var(--muted)">12</div>
+      </div>
+      <span class="mono" style="font-size: 12px; color: var(--muted)">4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64</span>
+      <hr class="chalk-rule">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px; line-height: 20px">
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 500">Allowed</span><span style="color: var(--muted)">Hover appears instantly, fades out in 150 ms (Linear) · press 0.97 (Vercel) · menus .96 → 1 in 150 ms from their trigger · toasts stack −14 px / −5 % and fan out on hover, 400 ms (Sonner) · page reveal from a 2 px blur, 400 ms, 40 ms stagger (Chronicle) · tabs: highlight follows the pointer, underline slides 250 ms</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 500">Not allowed</span><span style="color: var(--muted)">Spring or bounce · glow · glass · infinite pulses · motion on keyboard-driven actions · anything over 400 ms</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

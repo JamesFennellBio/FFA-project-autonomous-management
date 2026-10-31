@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pairing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+.fl{--bg:#F1F1EF;--panel:#FAFAF8;--surface:#FFFFFF;--surface-2:rgba(20,20,18,.045);--raised:#FFFFFF;--border:rgba(20,20,18,.10);--border-strong:rgba(20,20,18,.20);--dot:rgba(20,20,18,.11);--text:#171717;--muted:#4D4D4D;--faint:#6B6B6B;--bad:#D92D20;--bad-soft:rgba(217,45,32,.1);--warn:#A85B00;--warn-soft:rgba(168,91,0,.1);--shadow-1:none;--shadow-2:0 0 0 1px rgba(20,20,18,.08),0 1px 1px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08),0 24px 48px rgba(0,0,0,.06);--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-chron:cubic-bezier(.41,.66,.36,.86);--ease:var(--ease-out);--ease-emph:var(--ease-out);font-family:Geist,system-ui,sans-serif;font-size:14px;color:var(--text);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;background:var(--bg)}
+.m-lab{--accent:#3B82F6;--accent-strong:#2563EB;--accent-ink:#FFFFFF;--accent-soft:rgba(59,130,246,.12);--accent-text:#0A4FC4}
+.m-farm{--accent:#2FBF71;--accent-strong:#2FBF71;--accent-ink:#000000;--accent-soft:rgba(47,191,113,.14);--accent-text:#11693B}
+.m-home{--accent:#FF8A3D;--accent-strong:#FF8A3D;--accent-ink:#000000;--accent-soft:rgba(255,138,61,.15);--accent-text:#A3460A}
+.dark{--bg:#121315;--panel:#17181A;--surface:#1C1D20;--surface-2:rgba(236,233,226,.05);--raised:#202124;--border:rgba(236,233,226,.09);--border-strong:rgba(236,233,226,.18);--dot:rgba(236,233,226,.075);--text:#F2F1EE;--muted:#A9A7A1;--faint:#8A8883;--bad:#FF6B5E;--bad-soft:rgba(255,107,94,.13);--warn:#F5A524;--warn-soft:rgba(245,165,36,.12);--shadow-2:0 0 0 1px rgba(236,233,226,.10),0 8px 24px rgba(0,0,0,.45),0 24px 64px rgba(0,0,0,.4);color:var(--text)}
+.dark.m-lab,.dark .m-lab{--accent-text:#8DB6FF;--accent-soft:rgba(59,130,246,.16)}
+.dark.m-farm,.dark .m-farm{--accent-text:#6BE3A2;--accent-soft:rgba(47,191,113,.15)}
+.dark.m-home,.dark .m-home{--accent-text:#FFB27A;--accent-soft:rgba(255,138,61,.15)}
+.sun{--bg:#FFFFFF;--panel:#FFFFFF;--surface:#FFFFFF;--surface-2:rgba(0,0,0,.06);--raised:#FFFFFF;--border:rgba(0,0,0,.28);--border-strong:rgba(0,0,0,.5);--dot:rgba(0,0,0,.12);--text:#000000;--muted:#262626;--faint:#333333;--bad:#C21807;--bad-soft:rgba(194,24,7,.12);--warn:#8A4B00;--warn-soft:rgba(138,75,0,.12);color:#000;font-size:15px}
+.sun.m-farm{--accent:#14C95B;--accent-strong:#14C95B;--accent-ink:#000000;--accent-soft:rgba(20,201,91,.2);--accent-text:#00702F}
+.fl .dots,.fl .panel{background:radial-gradient(circle at 1px 1px,var(--dot) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel)}
+.fl .panel{border:1px solid var(--border);border-radius:12px}
+.fl button{font:inherit;cursor:pointer}
+.fl h1,.fl h2{font-weight:500!important;letter-spacing:-.025em}
+.fl .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:none}
+.sun .card{border-width:1.5px}
+.fl .btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text);font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;box-sizing:border-box;transition:background-color 150ms ease,border-color 150ms ease,transform 150ms var(--ease-out)}
+.fl .btn:hover{background:var(--surface-2);transition-duration:0ms,0ms,150ms}
+.fl .btn:active,.fl .press:active{transform:scale(.97)}
+.fl .btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.fl .btn-primary:hover{background:var(--text);opacity:.86}
+.fl .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:4px;border:1px solid var(--border-strong);font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--faint);line-height:1}
+.fl .eyebrow{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.fl .mono{font-family:"Geist Mono",ui-monospace,monospace}
+.fl .nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:6px;color:var(--muted);font-size:13px;font-weight:500;text-decoration:none;transition:background-color 150ms ease,color 150ms ease}
+.fl .nav:hover{background:var(--surface-2);color:var(--text);transition-duration:0ms}
+.fl .nav.on{background:var(--surface-2);color:var(--text)}
+.fl .nav.on svg{color:var(--accent)}
+.fl .row{transition:background-color 150ms ease}
+.fl .row:hover{background:var(--surface-2);transition-duration:0ms}
+.fl .pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;background:transparent;color:var(--muted);white-space:nowrap;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.fl .pill.ok{color:var(--accent-text);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.fl .pill.bad{color:var(--bad);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.fl .pill.warn{color:var(--warn);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.fl .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.fl .sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border-strong);border:0;padding:0;flex:none;transition:background-color 150ms ease}
+.fl .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 200ms var(--ease-out)}
+.fl .sw.on{background:var(--accent)}
+.fl .sw.on::after{transform:translateX(14px)}
+.fl .field{height:32px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text);padding:0 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.fl .field:focus,.fl .btn:focus-visible,.fl .nav:focus-visible,.fl .sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fl .chalk-rule{border:0;border-top:1px dashed var(--border-strong);margin:0}
+.fl .tabs{position:relative;display:flex;align-items:center;height:36px}
+.fl .tab{position:relative;z-index:1;height:30px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:500;padding:0;transition:color 150ms ease}
+.fl .tab.on{color:var(--text)}
+.fl .tab-hl{position:absolute;top:3px;height:30px;border-radius:6px;background:var(--surface-2);transition:transform 150ms var(--ease-out),width 150ms var(--ease-out),opacity 150ms ease;pointer-events:none}
+.fl .tab-ul{position:absolute;bottom:-1px;height:2px;border-radius:1px;background:var(--text);transition:transform 250ms var(--ease-out),width 250ms var(--ease-out)}
+@keyframes fl-reveal{from{opacity:0;filter:blur(2px);transform:translateY(6px)}to{opacity:1;filter:none;transform:none}}
+@keyframes fl-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+@keyframes fl-shimmer{from{background-position:-200px 0}to{background-position:200px 0}}
+@keyframes fl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes fl-fade{from{opacity:0}to{opacity:1}}
+@keyframes fl-toast{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+.fl .rise{animation:fl-reveal 400ms var(--ease-chron) both}
+.fl .s1{animation-delay:40ms}.fl .s2{animation-delay:80ms}.fl .s3{animation-delay:120ms}.fl .s4{animation-delay:160ms}
+.fl .draw{stroke-dasharray:400;animation:fl-draw 600ms var(--ease-out) both}
+.fl .pop{animation:fl-pop 150ms var(--ease-out) both}
+.fl .fade{animation:fl-fade 120ms ease both}
+.fl .skel{background:linear-gradient(90deg,var(--surface-2) 0,var(--border) 50%,var(--surface-2) 100%);background-size:400px 100%;animation:fl-shimmer 1.4s linear infinite;border-radius:4px}
+.fl.boomer *,.fl.boomer *::before,.fl.boomer *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){.fl *,.fl *::before,.fl *::after{animation-duration:1ms!important;transition-duration:1ms!important}}
+@keyframes check-in{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+@keyframes check-draw{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
+.fl .check{animation:check-in 300ms var(--ease) both}
+.fl .check path{stroke-dasharray:40;animation:check-draw 300ms 120ms var(--ease) both}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="position: relative; min-height: 900px; display: flex; flex-wrap: wrap">
+  <aside style="flex: 1 0 232px; max-width: 100%; box-sizing: border-box; padding: 16px 12px; background: transparent; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+      <div style="width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8.7 5v10L12 22l-8.7-5V7z"/></svg></div>
+      <div style="display: flex; flex-direction: column"><span style="font-size: 14px; font-weight: 600">Farm &amp; Lab</span><span style="font-size: 12px; color: var(--faint)">{{modeName}} mode</span></div>
+    </div>
+    <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+      <a class="nav" href="Dashboard.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</a>
+      <a class="nav" href="Devices.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>{{devicesWord}}</a>
+      <a class="nav" href="History.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>History</a>
+      <a class="nav" href="Automation.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/></svg>Automation</a>
+      <a class="nav on" href="Pairing.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>Pairing<span class="pill ok" style="margin-left: auto; height: 20px">2</span></a>
+      <a class="nav" href="Settings.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Settings</a>
+    </nav>
+    <div style="margin-top: auto; border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 13px; font-weight: 600">Hub</span><span class="pill ok"><span class="dot"></span>Linked</span></div>
+      <span class="mono" style="font-size: 12px; color: var(--muted)">AB12-CD34-EF56-7890</span>
+      <span style="font-size: 12px; color: var(--faint)">PQ hybrid · rekeyed 4 min ago</span>
+    </div>
+  </aside>
+  <main class="panel" style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; margin: 8px 8px 8px 0; display: flex; flex-direction: column; overflow: hidden">
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border)">
+      <span style="font-size: 13px; color: var(--faint)">{{modeName}}</span>
+      <span style="font-size: 13px; color: var(--border-strong)">/</span>
+      <span style="font-size: 13px; font-weight: 500">Pairing</span>
+      <div style="margin-left: auto; display: flex; gap: 6px; align-items: center">
+        <button class="btn" onClick="{{openCmd}}" style="height: 28px; width: 240px; justify-content: space-between; color: var(--faint); font-weight: 400"><span style="display: flex; gap: 8px; align-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search or jump to…</span><span class="kbd">⌘K</span></button>
+        <button class="btn" aria-label="Notifications" style="height: 28px; width: 28px; padding: 0; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></button>
+      </div>
+    </div>
+    <div style="box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px">
+    <header class="rise" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">Pairing</h1>
+        <p style="margin: 0; font-size: 14px; color: var(--muted)">Add phones by QR · approve new {{devicesWordLower}} · every key is post-quantum hybrid</p>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+      <section class="card hud" style="flex: 1 1 420px; padding: 24px; display: flex; flex-direction: column; gap: 20px; align-items: center; text-align: center">
+        <div style="align-self: stretch; display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 16px; font-weight: 600">Add a phone</h2><span class="pill">Step {{step}} of 3</span></div>
+
+        <sc-if value="{{isIdle}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 16px; align-items: center; padding: 24px 0">
+            <div style="width: 64px; height: 64px; border-radius: 16px; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg></div>
+            <p style="margin: 0; font-size: 14px; color: var(--muted); max-width: 320px">Open Farm &amp; Lab on the phone and choose “Scan pairing code”. The code works once and expires after 5 minutes.</p>
+            <button class="btn btn-primary" onClick="{{showQr}}">Show pairing code</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isQr}}" hint-placeholder-val="{{ true }}">
+          <div class="rise" style="display: flex; flex-direction: column; gap: 16px; align-items: center">
+            <div style="position: relative; width: 232px; height: 232px">
+              <div style="position: absolute; inset: 0; border-radius: 18px; background: #fff; border: 1px solid var(--border); padding: 16px; box-sizing: border-box">
+                <div role="img" aria-label="Pairing QR code" style="display: grid; grid-template-columns: repeat(25, minmax(0, 1fr)); width: 100%; height: 100%">
+                  <sc-for list="{{qr}}" as="q" hint-placeholder-count="625"><div style="background: {{q}}"></div></sc-for>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 14px; font-weight: 500">Waiting for the phone to scan…</span><span style="font-size: 13px; color: var(--faint)">Expires in 4:52 · single use</span></div>
+            <div style="display: flex; gap: 12px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); font-size: 12px; color: var(--muted); text-align: left">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+              <span>The code carries the hub's address and key ID, so the phone only talks to this hub. Its one-time ticket lets the hub approve the phone without a second step.</span>
+            </div>
+            <div style="display: flex; gap: 8px"><button class="btn" onClick="{{reset}}">Cancel</button><button class="btn" onClick="{{simulate}}">Simulate scan</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isDone}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 24px 0">
+            <div class="check" style="width: 72px; height: 72px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 16px; font-weight: 600">James's iPhone is paired</span><span class="mono" style="font-size: 12px; color: var(--muted)">7F3A-19C2-0BD4-E851</span></div>
+            <button class="btn" onClick="{{reset}}">Pair another phone</button>
+          </div>
+        </sc-if>
+      </section>
+
+      <div style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 20px">
+        <section class="card" style="padding: 6px 0">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px"><h2 style="margin: 0; font-size: 15px; font-weight: 600">Waiting for approval</h2><span class="pill ok">2</span></div>
+          <div style="display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border)">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--surface-2); display: grid; place-items: center; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4"/></svg></div>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">New node · LoRa</span><span class="mono" style="font-size: 12px; color: var(--muted)">4C1D-8E02-AB77-3F90</span></div>
+            <button class="btn" style="height: 32px">Reject</button><button class="btn btn-primary" style="height: 32px">Approve</button>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border)">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--surface-2); display: grid; place-items: center; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4"/></svg></div>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">New node · Wi-Fi</span><span class="mono" style="font-size: 12px; color: var(--muted)">91EE-0274-5C3B-D6A1</span></div>
+            <button class="btn" style="height: 32px">Reject</button><button class="btn btn-primary" style="height: 32px">Approve</button>
+          </div>
+          <p style="margin: 0; padding: 10px 16px 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--faint)">Check the fingerprint against the label printed by the node before approving.</p>
+        </section>
+
+        <section class="card" style="padding: 6px 0">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px"><h2 style="margin: 0; font-size: 15px; font-weight: 600">Paired phones</h2></div>
+          <div style="display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border)">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">Pixel 9</span><span class="mono" style="font-size: 12px; color: var(--muted)">20B4-C71E-993A-0F6D</span></div>
+            <span style="font-size: 12px; color: var(--faint)">Seen 2 h ago</span>
+            <button class="btn" style="height: 32px; color: var(--bad)">Remove</button>
+          </div>
+        </section>
+
+        <section class="card" style="padding: 16px; display: flex; gap: 14px; align-items: center">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">Hub</span><span style="font-size: 13px; color: var(--muted)">Linked with a one-time code · <span class="mono">AB12-CD34-EF56-7890</span></span></div>
+          <a class="btn" href="AddHub.dc.html">Add another hub</a>
+        </section>
+      </div>
+    </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["farm","lab","home"],"default":"farm"},"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { s: 'qr' }; }
+  renderVals() {
+    const mode = this.props.mode ?? 'farm';
+    const dark = this.props.dark ?? true;
+    const M = { farm: ['Farm','Sensors'], lab: ['Lab','Instruments'], home: ['Home','Devices'] }[mode];
+    const N = 25, qr = [];
+    const finder = (r, c) => {
+      for (const [R, C] of [[0,0],[0,N-7],[N-7,0]]) {
+        const y = r - R, x = c - C;
+        if (y >= 0 && y < 7 && x >= 0 && x < 7) return (y === 0 || y === 6 || x === 0 || x === 6 || (y >= 2 && y <= 4 && x >= 2 && x <= 4)) ? 1 : 0;
+        if (y >= -1 && y <= 7 && x >= -1 && x <= 7) return 0;
+      }
+      return -1;
+    };
+    let seed = 7;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const f = finder(r, c);
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const on = f === -1 ? ((seed >> 8) & 1) : f;
+      qr.push(on ? '#111114' : 'transparent');
+    }
+    const s = this.state.s;
+    return {
+      rootClass: 'fl m-' + mode + (dark ? ' dark' : ''), modeName: M[0], devicesWord: M[1], devicesWordLower: M[1].toLowerCase(),
+      qr, isIdle: s === 'idle', isQr: s === 'qr', isDone: s === 'done',
+      step: s === 'idle' ? 1 : s === 'qr' ? 2 : 3,
+      showQr: () => this.setState({ s: 'qr' }), simulate: () => this.setState({ s: 'done' }), reset: () => this.setState({ s: 'idle' })
+    };
+  }
+}
+</script>
+</body>
+</html>

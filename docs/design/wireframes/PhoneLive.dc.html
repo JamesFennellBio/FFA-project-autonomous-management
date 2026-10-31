@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+.fl{--bg:#F1F1EF;--panel:#FAFAF8;--surface:#FFFFFF;--surface-2:rgba(20,20,18,.045);--raised:#FFFFFF;--border:rgba(20,20,18,.10);--border-strong:rgba(20,20,18,.20);--dot:rgba(20,20,18,.11);--text:#171717;--muted:#4D4D4D;--faint:#6B6B6B;--bad:#D92D20;--bad-soft:rgba(217,45,32,.1);--warn:#A85B00;--warn-soft:rgba(168,91,0,.1);--shadow-1:none;--shadow-2:0 0 0 1px rgba(20,20,18,.08),0 1px 1px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08),0 24px 48px rgba(0,0,0,.06);--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-chron:cubic-bezier(.41,.66,.36,.86);--ease:var(--ease-out);--ease-emph:var(--ease-out);font-family:Geist,system-ui,sans-serif;font-size:14px;color:var(--text);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;background:var(--bg)}
+.m-lab{--accent:#3B82F6;--accent-strong:#2563EB;--accent-ink:#FFFFFF;--accent-soft:rgba(59,130,246,.12);--accent-text:#0A4FC4}
+.m-farm{--accent:#2FBF71;--accent-strong:#2FBF71;--accent-ink:#000000;--accent-soft:rgba(47,191,113,.14);--accent-text:#11693B}
+.m-home{--accent:#FF8A3D;--accent-strong:#FF8A3D;--accent-ink:#000000;--accent-soft:rgba(255,138,61,.15);--accent-text:#A3460A}
+.dark{--bg:#121315;--panel:#17181A;--surface:#1C1D20;--surface-2:rgba(236,233,226,.05);--raised:#202124;--border:rgba(236,233,226,.09);--border-strong:rgba(236,233,226,.18);--dot:rgba(236,233,226,.075);--text:#F2F1EE;--muted:#A9A7A1;--faint:#8A8883;--bad:#FF6B5E;--bad-soft:rgba(255,107,94,.13);--warn:#F5A524;--warn-soft:rgba(245,165,36,.12);--shadow-2:0 0 0 1px rgba(236,233,226,.10),0 8px 24px rgba(0,0,0,.45),0 24px 64px rgba(0,0,0,.4);color:var(--text)}
+.dark.m-lab,.dark .m-lab{--accent-text:#8DB6FF;--accent-soft:rgba(59,130,246,.16)}
+.dark.m-farm,.dark .m-farm{--accent-text:#6BE3A2;--accent-soft:rgba(47,191,113,.15)}
+.dark.m-home,.dark .m-home{--accent-text:#FFB27A;--accent-soft:rgba(255,138,61,.15)}
+.sun{--bg:#FFFFFF;--panel:#FFFFFF;--surface:#FFFFFF;--surface-2:rgba(0,0,0,.06);--raised:#FFFFFF;--border:rgba(0,0,0,.28);--border-strong:rgba(0,0,0,.5);--dot:rgba(0,0,0,.12);--text:#000000;--muted:#262626;--faint:#333333;--bad:#C21807;--bad-soft:rgba(194,24,7,.12);--warn:#8A4B00;--warn-soft:rgba(138,75,0,.12);color:#000;font-size:15px}
+.sun.m-farm{--accent:#14C95B;--accent-strong:#14C95B;--accent-ink:#000000;--accent-soft:rgba(20,201,91,.2);--accent-text:#00702F}
+.fl .dots,.fl .panel{background:radial-gradient(circle at 1px 1px,var(--dot) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel)}
+.fl .panel{border:1px solid var(--border);border-radius:12px}
+.fl button{font:inherit;cursor:pointer}
+.fl h1,.fl h2{font-weight:500!important;letter-spacing:-.025em}
+.fl .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:none}
+.sun .card{border-width:1.5px}
+.fl .btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text);font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;box-sizing:border-box;transition:background-color 150ms ease,border-color 150ms ease,transform 150ms var(--ease-out)}
+.fl .btn:hover{background:var(--surface-2);transition-duration:0ms,0ms,150ms}
+.fl .btn:active,.fl .press:active{transform:scale(.97)}
+.fl .btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.fl .btn-primary:hover{background:var(--text);opacity:.86}
+.fl .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:4px;border:1px solid var(--border-strong);font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--faint);line-height:1}
+.fl .eyebrow{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.fl .mono{font-family:"Geist Mono",ui-monospace,monospace}
+.fl .nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:6px;color:var(--muted);font-size:13px;font-weight:500;text-decoration:none;transition:background-color 150ms ease,color 150ms ease}
+.fl .nav:hover{background:var(--surface-2);color:var(--text);transition-duration:0ms}
+.fl .nav.on{background:var(--surface-2);color:var(--text)}
+.fl .nav.on svg{color:var(--accent)}
+.fl .row{transition:background-color 150ms ease}
+.fl .row:hover{background:var(--surface-2);transition-duration:0ms}
+.fl .pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;background:transparent;color:var(--muted);white-space:nowrap;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.fl .pill.ok{color:var(--accent-text);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.fl .pill.bad{color:var(--bad);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.fl .pill.warn{color:var(--warn);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.fl .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.fl .sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border-strong);border:0;padding:0;flex:none;transition:background-color 150ms ease}
+.fl .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 200ms var(--ease-out)}
+.fl .sw.on{background:var(--accent)}
+.fl .sw.on::after{transform:translateX(14px)}
+.fl .field{height:32px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text);padding:0 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.fl .field:focus,.fl .btn:focus-visible,.fl .nav:focus-visible,.fl .sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fl .chalk-rule{border:0;border-top:1px dashed var(--border-strong);margin:0}
+.fl .tabs{position:relative;display:flex;align-items:center;height:36px}
+.fl .tab{position:relative;z-index:1;height:30px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:500;padding:0;transition:color 150ms ease}
+.fl .tab.on{color:var(--text)}
+.fl .tab-hl{position:absolute;top:3px;height:30px;border-radius:6px;background:var(--surface-2);transition:transform 150ms var(--ease-out),width 150ms var(--ease-out),opacity 150ms ease;pointer-events:none}
+.fl .tab-ul{position:absolute;bottom:-1px;height:2px;border-radius:1px;background:var(--text);transition:transform 250ms var(--ease-out),width 250ms var(--ease-out)}
+@keyframes fl-reveal{from{opacity:0;filter:blur(2px);transform:translateY(6px)}to{opacity:1;filter:none;transform:none}}
+@keyframes fl-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+@keyframes fl-shimmer{from{background-position:-200px 0}to{background-position:200px 0}}
+@keyframes fl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes fl-fade{from{opacity:0}to{opacity:1}}
+@keyframes fl-toast{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+.fl .rise{animation:fl-reveal 400ms var(--ease-chron) both}
+.fl .s1{animation-delay:40ms}.fl .s2{animation-delay:80ms}.fl .s3{animation-delay:120ms}.fl .s4{animation-delay:160ms}
+.fl .draw{stroke-dasharray:400;animation:fl-draw 600ms var(--ease-out) both}
+.fl .pop{animation:fl-pop 150ms var(--ease-out) both}
+.fl .fade{animation:fl-fade 120ms ease both}
+.fl .skel{background:linear-gradient(90deg,var(--surface-2) 0,var(--border) 50%,var(--surface-2) 100%);background-size:400px 100%;animation:fl-shimmer 1.4s linear infinite;border-radius:4px}
+.fl.boomer *,.fl.boomer *::before,.fl.boomer *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){.fl *,.fl *::before,.fl *::after{animation-duration:1ms!important;transition-duration:1ms!important}}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden">
+  <div class="dots" style="flex: 1; min-height: 0; overflow: auto; padding: 24px 16px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <header style="display: flex; justify-content: space-between; align-items: flex-start">
+      <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: var(--muted)">{{place}}</span><h1 style="margin: 0; font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.02em">Live</h1></div>
+      <span class="pill ok" style="margin-top: 6px"><span class="dot"></span>Hub linked</span>
+    </header>
+    <div role="group" aria-label="Filter" style="display: flex; gap: 8px; overflow-x: auto">
+      <sc-for list="{{zones}}" as="z" hint-placeholder-count="4">
+        <button onClick="{{z.pick}}" style="flex: none; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid {{z.border}}; background: {{z.bg}}; color: {{z.fg}}; font-size: 13px; font-weight: 500">{{z.label}}</button>
+      </sc-for>
+    </div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+      <div class="card rise" style="padding: 14px 16px; display: flex; align-items: center; gap: 12px">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; color: var(--muted)">{{r.label}} · {{r.zone}}</span>
+          <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.02em">{{r.value}}<span style="font-size: 14px; color: var(--faint); font-weight: 500"> {{r.unit}}</span></span>
+        </div>
+        <svg width="72" height="28" viewBox="0 0 88 28" aria-hidden="true"><path class="draw" d="{{r.spark}}" fill="none" stroke="{{r.stroke}}" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+    </sc-for>
+    <h2 style="margin: 8px 0 0; font-size: 17px; font-weight: 600">Outputs</h2>
+    <div class="card" style="padding: 0">
+      <sc-for list="{{outs}}" as="o" hint-placeholder-count="2">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border)">
+          <span style="flex: 1; font-size: 15px; font-weight: 500">{{o.label}}</span>
+          <button class="{{o.sw}}" onClick="{{o.toggle}}" aria-label="{{o.label}}" style="transform: scale(1.2)"></button>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <nav aria-label="Tabs" style="flex: none; height: 84px; box-sizing: border-box; display: flex; border-top: 1px solid var(--border); background: var(--surface)">
+    <a class="press" href="PhoneLive.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--accent-text); font-size: 11px; font-weight: 600; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live</a>
+    <a class="press" href="PhoneAlerts.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--faint); font-size: 11px; font-weight: 500; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>Alerts</a>
+    <a class="press" href="PhoneRecipe.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--faint); font-size: 11px; font-weight: 500; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/></svg>Recipes</a>
+    <a class="press" href="PhoneScan.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--faint); font-size: 11px; font-weight: 500; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7"/></svg>Pair</a>
+    <a class="press" href="PhoneSettings.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--faint); font-size: 11px; font-weight: 500; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Settings</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["farm","lab","home"],"default":"farm"},"dark":{"editor":"boolean","default":true},"sunlight":{"editor":"boolean","default":true},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { z: 0, on: [true, false] }; }
+  renderVals() {
+    const mode = this.props.mode ?? 'farm';
+    const dark = this.props.dark ?? true;
+    const S = 'M0 20 C10 18 16 8 26 10 S42 22 52 16 S72 4 88 7', S2 = 'M0 8 C12 10 20 18 32 16 S50 6 62 12 S78 22 88 20';
+    const D = {
+      farm: ['My farm', ['All','North field','Greenhouse','South bed'], [['Soil moisture','North field','41.8','%',S],['Air temperature','Greenhouse','24.6','°C',S2],['Humidity','Greenhouse','68','%',S],['Soil moisture','South bed','23.1','%',S2,1]], ['Irrigation valve','Greenhouse fan']],
+      lab: ['My lab', ['All','Incubator 2','Cold room','Bench A'], [['Temperature','Incubator 2','37.1','°C',S2],['CO₂','Incubator 2','5.0','%',S],['Temperature','Cold room','6.4','°C',S,1],['Humidity','Bench A','41','%',S2]], ['Incubator heater','Fume hood fan']],
+      home: ['My home', ['All','Living room','Kitchen','Bathroom'], [['Temperature','Living room','21.4','°C',S2],['Leak sensor','Kitchen','Wet','',S,1],['Humidity','Bathroom','63','%',S],['CO₂','Bedroom','620','ppm',S2]], ['Heating','Porch light']]
+    }[mode];
+    return {
+      rootClass: 'fl m-' + mode + ((mode === 'farm' && (this.props.sunlight ?? true)) ? ' sun' : (dark ? ' dark' : '')), place: D[0],
+      zones: D[1].map((label, i) => { const on = i === this.state.z; return { label, bg: on ? 'var(--accent-strong)' : 'var(--surface)', fg: on ? 'var(--accent-ink)' : 'var(--text)', border: on ? 'var(--accent-strong)' : 'var(--border-strong)', pick: () => this.setState({ z: i }) }; }),
+      rows: D[2].map(([label, zone, value, unit, spark, bad]) => ({ label, zone, value, unit, spark, stroke: bad ? 'var(--bad)' : 'var(--accent)' })),
+      outs: D[3].map((label, i) => { const on = this.state.on[i]; return { label, sw: on ? 'sw on' : 'sw', toggle: () => { const n = this.state.on.slice(); n[i] = !on; this.setState({ on: n }); } }; })
+    };
+  }
+}
+</script>
+</body>
+</html>

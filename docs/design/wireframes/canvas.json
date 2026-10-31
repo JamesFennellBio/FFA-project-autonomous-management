@@ -1,0 +1,194 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-30T12:00:00Z"
+  },
+  "title": "Farm & Lab v2 Wireframes",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1560,
+      "title": "Spec sheet \u00b7 Linear \u00d7 Vercel \u00d7 Chronicle"
+    },
+    "Dashboard.dc.html": {
+      "x": 0,
+      "y": 1980,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Overview",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Devices.dc.html": {
+      "x": 1520,
+      "y": 1980,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Devices",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "History.dc.html": {
+      "x": 3040,
+      "y": 1980,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 History",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Automation.dc.html": {
+      "x": 0,
+      "y": 3000,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Automation (Blockly)",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Pairing.dc.html": {
+      "x": 1520,
+      "y": 3000,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Pairing + phone QR",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "AddHub.dc.html": {
+      "x": 3040,
+      "y": 3000,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Add hub (SPAKE2 code)",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Settings.dc.html": {
+      "x": 0,
+      "y": 4020,
+      "w": 1440,
+      "h": 900,
+      "title": "Desktop \u00b7 Settings + performance",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "FirstRun.dc.html": {
+      "x": 0,
+      "y": 5340,
+      "w": 1280,
+      "h": 820,
+      "title": "First run wizard",
+      "is_interactive": true
+    },
+    "Boomer.dc.html": {
+      "x": 1360,
+      "y": 5340,
+      "w": 1440,
+      "h": 900,
+      "title": "Boomer Mode \u00b7 Overview + simple recipe",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "PhoneLive.dc.html": {
+      "x": 0,
+      "y": 6660,
+      "w": 390,
+      "h": 844,
+      "title": "Phone \u00b7 Live",
+      "is_interactive": true
+    },
+    "PhoneScan.dc.html": {
+      "x": 470,
+      "y": 6660,
+      "w": 390,
+      "h": 844,
+      "title": "Phone \u00b7 Scan pairing QR"
+    },
+    "PhoneRecipe.dc.html": {
+      "x": 940,
+      "y": 6660,
+      "w": 390,
+      "h": 844,
+      "title": "Phone \u00b7 Recipe (Boomer builder)"
+    },
+    "PhoneAlerts.dc.html": {
+      "x": 1410,
+      "y": 6660,
+      "w": 390,
+      "h": 844,
+      "title": "Phone \u00b7 Alerts"
+    },
+    "PhoneSettings.dc.html": {
+      "x": 1880,
+      "y": 6660,
+      "w": 390,
+      "h": 844,
+      "title": "Phone \u00b7 Settings",
+      "is_interactive": true
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Dashboard.dc.html",
+    "Devices.dc.html",
+    "History.dc.html",
+    "Automation.dc.html",
+    "Pairing.dc.html",
+    "AddHub.dc.html",
+    "Settings.dc.html",
+    "FirstRun.dc.html",
+    "Boomer.dc.html",
+    "PhoneLive.dc.html",
+    "PhoneScan.dc.html",
+    "PhoneRecipe.dc.html",
+    "PhoneAlerts.dc.html",
+    "PhoneSettings.dc.html"
+  ],
+  "notes": {
+    "t-found": {
+      "x": 0,
+      "y": -300,
+      "text": "Spec sheet",
+      "kind": "title1",
+      "maxW": 1440
+    },
+    "t-desk": {
+      "x": 0,
+      "y": 1680,
+      "text": "Desktop app (Tauri + Leptos)",
+      "kind": "title1",
+      "maxW": 4480
+    },
+    "t-first": {
+      "x": 0,
+      "y": 5040,
+      "text": "First run & Boomer Mode",
+      "kind": "title1",
+      "maxW": 2800
+    },
+    "t-phone": {
+      "x": 0,
+      "y": 6360,
+      "text": "Phone app (iOS + Android, same UI)",
+      "kind": "title1",
+      "maxW": 2270
+    },
+    "n-tweaks": {
+      "x": 1520,
+      "y": 0,
+      "w": 360,
+      "size": "m",
+      "fill": "blue",
+      "text": "Tweaks on every screen: Mode (Lab / Farm / Home) and Dark. Phone screens also have Sunlight, which is on by default for Farm. Sidebar links are clickable in Play."
+    }
+  },
+  "designSystems": []
+}
