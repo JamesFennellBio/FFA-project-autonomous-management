@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Automation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+.fl{--bg:#F1F1EF;--panel:#FAFAF8;--surface:#FFFFFF;--surface-2:rgba(20,20,18,.045);--raised:#FFFFFF;--border:rgba(20,20,18,.10);--border-strong:rgba(20,20,18,.20);--dot:rgba(20,20,18,.11);--text:#171717;--muted:#4D4D4D;--faint:#6B6B6B;--bad:#D92D20;--bad-soft:rgba(217,45,32,.1);--warn:#A85B00;--warn-soft:rgba(168,91,0,.1);--shadow-1:none;--shadow-2:0 0 0 1px rgba(20,20,18,.08),0 1px 1px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08),0 24px 48px rgba(0,0,0,.06);--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-chron:cubic-bezier(.41,.66,.36,.86);--ease:var(--ease-out);--ease-emph:var(--ease-out);font-family:Geist,system-ui,sans-serif;font-size:14px;color:var(--text);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;background:var(--bg)}
+.m-lab{--accent:#3B82F6;--accent-strong:#2563EB;--accent-ink:#FFFFFF;--accent-soft:rgba(59,130,246,.12);--accent-text:#0A4FC4}
+.m-farm{--accent:#2FBF71;--accent-strong:#2FBF71;--accent-ink:#000000;--accent-soft:rgba(47,191,113,.14);--accent-text:#11693B}
+.m-home{--accent:#FF8A3D;--accent-strong:#FF8A3D;--accent-ink:#000000;--accent-soft:rgba(255,138,61,.15);--accent-text:#A3460A}
+.dark{--bg:#121315;--panel:#17181A;--surface:#1C1D20;--surface-2:rgba(236,233,226,.05);--raised:#202124;--border:rgba(236,233,226,.09);--border-strong:rgba(236,233,226,.18);--dot:rgba(236,233,226,.075);--text:#F2F1EE;--muted:#A9A7A1;--faint:#8A8883;--bad:#FF6B5E;--bad-soft:rgba(255,107,94,.13);--warn:#F5A524;--warn-soft:rgba(245,165,36,.12);--shadow-2:0 0 0 1px rgba(236,233,226,.10),0 8px 24px rgba(0,0,0,.45),0 24px 64px rgba(0,0,0,.4);color:var(--text)}
+.dark.m-lab,.dark .m-lab{--accent-text:#8DB6FF;--accent-soft:rgba(59,130,246,.16)}
+.dark.m-farm,.dark .m-farm{--accent-text:#6BE3A2;--accent-soft:rgba(47,191,113,.15)}
+.dark.m-home,.dark .m-home{--accent-text:#FFB27A;--accent-soft:rgba(255,138,61,.15)}
+.sun{--bg:#FFFFFF;--panel:#FFFFFF;--surface:#FFFFFF;--surface-2:rgba(0,0,0,.06);--raised:#FFFFFF;--border:rgba(0,0,0,.28);--border-strong:rgba(0,0,0,.5);--dot:rgba(0,0,0,.12);--text:#000000;--muted:#262626;--faint:#333333;--bad:#C21807;--bad-soft:rgba(194,24,7,.12);--warn:#8A4B00;--warn-soft:rgba(138,75,0,.12);color:#000;font-size:15px}
+.sun.m-farm{--accent:#14C95B;--accent-strong:#14C95B;--accent-ink:#000000;--accent-soft:rgba(20,201,91,.2);--accent-text:#00702F}
+.fl .dots,.fl .panel{background:radial-gradient(circle at 1px 1px,var(--dot) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel)}
+.fl .panel{border:1px solid var(--border);border-radius:12px}
+.fl button{font:inherit;cursor:pointer}
+.fl h1,.fl h2{font-weight:500!important;letter-spacing:-.025em}
+.fl .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:none}
+.sun .card{border-width:1.5px}
+.fl .btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text);font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;box-sizing:border-box;transition:background-color 150ms ease,border-color 150ms ease,transform 150ms var(--ease-out)}
+.fl .btn:hover{background:var(--surface-2);transition-duration:0ms,0ms,150ms}
+.fl .btn:active,.fl .press:active{transform:scale(.97)}
+.fl .btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.fl .btn-primary:hover{background:var(--text);opacity:.86}
+.fl .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:4px;border:1px solid var(--border-strong);font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--faint);line-height:1}
+.fl .eyebrow{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.fl .mono{font-family:"Geist Mono",ui-monospace,monospace}
+.fl .nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:6px;color:var(--muted);font-size:13px;font-weight:500;text-decoration:none;transition:background-color 150ms ease,color 150ms ease}
+.fl .nav:hover{background:var(--surface-2);color:var(--text);transition-duration:0ms}
+.fl .nav.on{background:var(--surface-2);color:var(--text)}
+.fl .nav.on svg{color:var(--accent)}
+.fl .row{transition:background-color 150ms ease}
+.fl .row:hover{background:var(--surface-2);transition-duration:0ms}
+.fl .pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;background:transparent;color:var(--muted);white-space:nowrap;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.fl .pill.ok{color:var(--accent-text);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.fl .pill.bad{color:var(--bad);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.fl .pill.warn{color:var(--warn);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.fl .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.fl .sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border-strong);border:0;padding:0;flex:none;transition:background-color 150ms ease}
+.fl .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 200ms var(--ease-out)}
+.fl .sw.on{background:var(--accent)}
+.fl .sw.on::after{transform:translateX(14px)}
+.fl .field{height:32px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text);padding:0 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.fl .field:focus,.fl .btn:focus-visible,.fl .nav:focus-visible,.fl .sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fl .chalk-rule{border:0;border-top:1px dashed var(--border-strong);margin:0}
+.fl .tabs{position:relative;display:flex;align-items:center;height:36px}
+.fl .tab{position:relative;z-index:1;height:30px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:500;padding:0;transition:color 150ms ease}
+.fl .tab.on{color:var(--text)}
+.fl .tab-hl{position:absolute;top:3px;height:30px;border-radius:6px;background:var(--surface-2);transition:transform 150ms var(--ease-out),width 150ms var(--ease-out),opacity 150ms ease;pointer-events:none}
+.fl .tab-ul{position:absolute;bottom:-1px;height:2px;border-radius:1px;background:var(--text);transition:transform 250ms var(--ease-out),width 250ms var(--ease-out)}
+@keyframes fl-reveal{from{opacity:0;filter:blur(2px);transform:translateY(6px)}to{opacity:1;filter:none;transform:none}}
+@keyframes fl-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+@keyframes fl-shimmer{from{background-position:-200px 0}to{background-position:200px 0}}
+@keyframes fl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes fl-fade{from{opacity:0}to{opacity:1}}
+@keyframes fl-toast{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+.fl .rise{animation:fl-reveal 400ms var(--ease-chron) both}
+.fl .s1{animation-delay:40ms}.fl .s2{animation-delay:80ms}.fl .s3{animation-delay:120ms}.fl .s4{animation-delay:160ms}
+.fl .draw{stroke-dasharray:400;animation:fl-draw 600ms var(--ease-out) both}
+.fl .pop{animation:fl-pop 150ms var(--ease-out) both}
+.fl .fade{animation:fl-fade 120ms ease both}
+.fl .skel{background:linear-gradient(90deg,var(--surface-2) 0,var(--border) 50%,var(--surface-2) 100%);background-size:400px 100%;animation:fl-shimmer 1.4s linear infinite;border-radius:4px}
+.fl.boomer *,.fl.boomer *::before,.fl.boomer *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){.fl *,.fl *::before,.fl *::after{animation-duration:1ms!important;transition-duration:1ms!important}}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="position: relative; min-height: 900px; display: flex; flex-wrap: wrap">
+  <aside style="flex: 1 0 232px; max-width: 100%; box-sizing: border-box; padding: 16px 12px; background: transparent; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+      <div style="width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8.7 5v10L12 22l-8.7-5V7z"/></svg></div>
+      <div style="display: flex; flex-direction: column"><span style="font-size: 14px; font-weight: 600">Farm &amp; Lab</span><span style="font-size: 12px; color: var(--faint)">{{modeName}} mode</span></div>
+    </div>
+    <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+      <a class="nav" href="Dashboard.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</a>
+      <a class="nav" href="Devices.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>{{devicesWord}}</a>
+      <a class="nav" href="History.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>History</a>
+      <a class="nav on" href="Automation.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/></svg>Automation</a>
+      <a class="nav" href="Pairing.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>Pairing<span class="pill ok" style="margin-left: auto; height: 20px">2</span></a>
+      <a class="nav" href="Settings.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Settings</a>
+    </nav>
+    <div style="margin-top: auto; border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 13px; font-weight: 600">Hub</span><span class="pill ok"><span class="dot"></span>Linked</span></div>
+      <span class="mono" style="font-size: 12px; color: var(--muted)">AB12-CD34-EF56-7890</span>
+      <span style="font-size: 12px; color: var(--faint)">PQ hybrid · rekeyed 4 min ago</span>
+    </div>
+  </aside>
+  <main class="panel" style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; margin: 8px 8px 8px 0; display: flex; flex-direction: column; overflow: hidden">
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border)">
+      <span style="font-size: 13px; color: var(--faint)">{{modeName}}</span>
+      <span style="font-size: 13px; color: var(--border-strong)">/</span>
+      <span style="font-size: 13px; font-weight: 500">Automation</span>
+      <div style="margin-left: auto; display: flex; gap: 6px; align-items: center">
+        <button class="btn" onClick="{{openCmd}}" style="height: 28px; width: 240px; justify-content: space-between; color: var(--faint); font-weight: 400"><span style="display: flex; gap: 8px; align-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search or jump to…</span><span class="kbd">⌘K</span></button>
+        <button class="btn" aria-label="Notifications" style="height: 28px; width: 28px; padding: 0; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></button>
+      </div>
+    </div>
+    <div style="box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px">
+    <header class="rise" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">Automation</h1>
+        <p style="margin: 0; font-size: 14px; color: var(--muted)">Recipes are stored and run on the hub · 5 of 32 used</p>
+      </div>
+      <button class="btn btn-primary">New recipe</button>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+      <nav aria-label="Recipes" class="card" style="flex: 1 1 260px; padding: 8px; display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{recipes}}" as="r" hint-placeholder-count="5">
+          <div class="row" style="display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 6px; background: {{r.bg}}">
+            <button onClick="{{r.pick}}" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: transparent; padding: 0; text-align: left; color: var(--text)">
+              <span style="font-size: 14px; font-weight: 500">{{r.name}}</span>
+              <span style="font-size: 12px; color: var(--faint)">{{r.sub}}</span>
+            </button>
+            <button class="{{r.swClass}}" onClick="{{r.toggle}}" aria-label="{{r.aria}}"></button>
+          </div>
+        </sc-for>
+      </nav>
+
+      <section class="card" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border)">
+          <input class="field" aria-label="Recipe name" value="{{current}}" style="flex: 1 1 220px; font-weight: 500">
+          <div role="group" aria-label="Editor" style="display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border)">
+            <button class="btn" onClick="{{showBlocks}}" aria-pressed="{{blocksPressed}}" style="height: 28px; border: 0; background: {{blocksBg}}; box-shadow: {{blocksSh}}">Blocks</button>
+            <button class="btn" onClick="{{showSimple}}" aria-pressed="{{simplePressed}}" style="height: 28px; border: 0; background: {{simpleBg}}; box-shadow: {{simpleSh}}">Simple</button>
+          </div>
+          <button class="btn">Delete</button>
+          <button class="btn btn-primary">Save to hub</button>
+        </div>
+
+        <sc-if value="{{isBlocks}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex: 1; min-height: 520px">
+            <div style="width: 168px; flex: none; border-right: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface)">
+              <span class="eyebrow" style="padding: 4px 4px 6px">Toolbox</span>
+              <div style="height: 30px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; font-weight: 500; display: flex; align-items: center; padding: 0 10px">When</div>
+              <div style="height: 30px; border-radius: 6px; background: var(--surface-2); font-size: 13px; font-weight: 500; display: flex; align-items: center; padding: 0 10px">Compare</div>
+              <div style="height: 30px; border-radius: 6px; background: var(--surface-2); font-size: 13px; font-weight: 500; display: flex; align-items: center; padding: 0 10px">And / Or / Not</div>
+              <div style="height: 30px; border-radius: 6px; background: var(--surface-2); font-size: 13px; font-weight: 500; display: flex; align-items: center; padding: 0 10px">Set output</div>
+              <div style="height: 30px; border-radius: 6px; background: var(--surface-2); font-size: 13px; font-weight: 500; display: flex; align-items: center; padding: 0 10px">Send alert</div>
+            </div>
+            <div style="flex: 1; min-width: 0; position: relative; background-color: var(--bg); background-image: radial-gradient(var(--border-strong) 1px, transparent 1px); background-size: 20px 20px; padding: 40px">
+              <div class="rise" style="display: inline-flex; flex-direction: column; border-radius: 10px; background: var(--accent); color: var(--accent-ink); color: var(--accent-ink); box-shadow: var(--shadow-2); min-width: 420px">
+                <div style="padding: 10px 14px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--accent-strong); border-radius: 10px 10px 0 0">When
+                  <span style="padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,.2); font-weight: 500">{{sensor}}</span>
+                  <span style="padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,.2); font-weight: 500">is below</span>
+                  <span style="padding: 4px 8px; border-radius: 6px; background: #fff; color: #000; font-weight: 500">{{threshold}}</span>
+                </div>
+                <div style="margin: 0 0 0 16px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border-left: 1px solid var(--border)">
+                  <div style="padding: 8px 12px; border-radius: 8px; background: var(--surface-2); color: var(--text); font-size: 14px; display: flex; gap: 8px; align-items: center; border: 1px solid var(--border)">Set <b style="font-weight: 600">{{output}}</b> to <span class="pill ok">On</span></div>
+                  <div style="padding: 8px 12px; border-radius: 8px; background: var(--surface-2); color: var(--text); font-size: 14px; display: flex; gap: 8px; align-items: center; border: 1px solid var(--border)">Send alert <span style="color: var(--muted)">“{{alertText}}”</span></div>
+                </div>
+                <div style="padding: 8px 14px; font-size: 13px; font-weight: 600; background: var(--accent-strong)">Otherwise</div>
+                <div style="margin: 0 0 0 16px; padding: 10px 12px; background: var(--surface); border-left: 1px solid var(--border); border-radius: 0 0 0 0">
+                  <div style="padding: 8px 12px; border-radius: 8px; background: var(--surface-2); color: var(--text); font-size: 14px; display: flex; gap: 8px; align-items: center; border: 1px solid var(--border)">Set <b style="font-weight: 600">{{output}}</b> to <span class="pill">Off</span></div>
+                </div>
+                <div style="height: 12px; background: var(--accent-strong); border-radius: 0 0 10px 10px"></div>
+              </div>
+              <div style="position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 6px">
+                <button class="btn" aria-label="Zoom in" style="width: 36px; padding: 0; justify-content: center">+</button>
+                <button class="btn" aria-label="Zoom out" style="width: 36px; padding: 0; justify-content: center">−</button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isSimple}}" hint-placeholder-val="{{ false }}">
+          <div class="rise" style="padding: 24px; display: flex; flex-direction: column; gap: 16px; max-width: 640px">
+            <span class="eyebrow">Simple builder · same recipe JSON</span>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 15px">
+              <span style="font-weight: 600">When</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap"><select class="field" aria-label="Sensor" style="flex: 1 1 200px"><option>{{sensor}}</option></select><select class="field" aria-label="Comparison"><option>is below</option></select><input class="field" aria-label="Value" value="{{threshold}}" style="width: 96px"></div>
+              <span style="font-weight: 600">Then</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap"><select class="field" aria-label="Output" style="flex: 1 1 200px"><option>Turn on {{output}}</option></select><button class="btn">+ Add action</button></div>
+              <span style="font-weight: 600">Otherwise</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap"><select class="field" aria-label="Otherwise output" style="flex: 1 1 200px"><option>Turn off {{output}}</option></select></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="margin-top: auto; display: flex; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted)">
+          <span class="pill ok"><span class="dot"></span>Valid</span>
+          <span>1 condition · 2 actions · otherwise 1 action</span>
+          <span style="margin-left: auto">Last saved to hub 2 min ago</span>
+        </div>
+      </section>
+    </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["farm","lab","home"],"default":"farm"},"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { view: 'blocks', sel: 0, on: [true, true, false, true, true] }; }
+  renderVals() {
+    const mode = this.props.mode ?? 'farm';
+    const dark = this.props.dark ?? true;
+    const M = {
+      farm: ['Farm','Sensors','Soil moisture · North field','25 %','Irrigation valve','North field is dry',[['Water North field when dry','Soil moisture → valve'],['Cool the greenhouse','Air temperature → fan'],['Frost warning','Air temperature → alert'],['Tank low alert','Tank level → alert'],['Lights at dusk','Light → grow lights']]],
+      lab: ['Lab','Instruments','Temperature · Cold room','4 °C','Cold room compressor','Cold room is warming',[['Hold the cold room at 4 °C','Temperature → compressor'],['Incubator CO₂ watch','CO₂ → alert'],['Fume hood airflow','Pressure → fan'],['Freezer alarm','Temperature → alert'],['UV cycle after use','Timer → UV lamp']]],
+      home: ['Home','Devices','Temperature · Living room','19 °C','Heating','Living room is cold',[['Keep the living room warm','Temperature → heating'],['Leak alarm','Leak sensor → alert'],['Bathroom fan','Humidity → fan'],['Porch light at night','Light → porch light'],['Garage door left open','Door → alert']]]
+    }[mode];
+    const blocks = this.state.view === 'blocks';
+    return {
+      rootClass: 'fl m-' + mode + (dark ? ' dark' : ''), modeName: M[0], devicesWord: M[1],
+      sensor: M[2], threshold: M[3], output: M[4], alertText: M[5], current: M[6][this.state.sel][0],
+      isBlocks: blocks, isSimple: !blocks,
+      blocksPressed: blocks ? 'true' : 'false', simplePressed: blocks ? 'false' : 'true',
+      blocksBg: blocks ? 'var(--surface)' : 'transparent', simpleBg: blocks ? 'transparent' : 'var(--surface)',
+      blocksSh: blocks ? 'var(--shadow-1)' : 'none', simpleSh: blocks ? 'none' : 'var(--shadow-1)',
+      showBlocks: () => this.setState({ view: 'blocks' }), showSimple: () => this.setState({ view: 'simple' }),
+      recipes: M[6].map(([name, sub], i) => {
+        const on = this.state.on[i];
+        return { name, sub, bg: i === this.state.sel ? 'var(--surface-2)' : '',
+          swClass: on ? 'sw on' : 'sw', aria: name + (on ? ' enabled' : ' disabled'),
+          pick: () => this.setState({ sel: i }),
+          toggle: () => { const n = this.state.on.slice(); n[i] = !on; this.setState({ on: n }); } };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

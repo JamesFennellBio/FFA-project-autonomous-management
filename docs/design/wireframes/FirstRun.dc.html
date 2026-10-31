@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+.fl{--bg:#F1F1EF;--panel:#FAFAF8;--surface:#FFFFFF;--surface-2:rgba(20,20,18,.045);--raised:#FFFFFF;--border:rgba(20,20,18,.10);--border-strong:rgba(20,20,18,.20);--dot:rgba(20,20,18,.11);--text:#171717;--muted:#4D4D4D;--faint:#6B6B6B;--bad:#D92D20;--bad-soft:rgba(217,45,32,.1);--warn:#A85B00;--warn-soft:rgba(168,91,0,.1);--shadow-1:none;--shadow-2:0 0 0 1px rgba(20,20,18,.08),0 1px 1px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.08),0 24px 48px rgba(0,0,0,.06);--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-chron:cubic-bezier(.41,.66,.36,.86);--ease:var(--ease-out);--ease-emph:var(--ease-out);font-family:Geist,system-ui,sans-serif;font-size:14px;color:var(--text);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased;background:var(--bg)}
+.m-lab{--accent:#3B82F6;--accent-strong:#2563EB;--accent-ink:#FFFFFF;--accent-soft:rgba(59,130,246,.12);--accent-text:#0A4FC4}
+.m-farm{--accent:#2FBF71;--accent-strong:#2FBF71;--accent-ink:#000000;--accent-soft:rgba(47,191,113,.14);--accent-text:#11693B}
+.m-home{--accent:#FF8A3D;--accent-strong:#FF8A3D;--accent-ink:#000000;--accent-soft:rgba(255,138,61,.15);--accent-text:#A3460A}
+.dark{--bg:#121315;--panel:#17181A;--surface:#1C1D20;--surface-2:rgba(236,233,226,.05);--raised:#202124;--border:rgba(236,233,226,.09);--border-strong:rgba(236,233,226,.18);--dot:rgba(236,233,226,.075);--text:#F2F1EE;--muted:#A9A7A1;--faint:#8A8883;--bad:#FF6B5E;--bad-soft:rgba(255,107,94,.13);--warn:#F5A524;--warn-soft:rgba(245,165,36,.12);--shadow-2:0 0 0 1px rgba(236,233,226,.10),0 8px 24px rgba(0,0,0,.45),0 24px 64px rgba(0,0,0,.4);color:var(--text)}
+.dark.m-lab,.dark .m-lab{--accent-text:#8DB6FF;--accent-soft:rgba(59,130,246,.16)}
+.dark.m-farm,.dark .m-farm{--accent-text:#6BE3A2;--accent-soft:rgba(47,191,113,.15)}
+.dark.m-home,.dark .m-home{--accent-text:#FFB27A;--accent-soft:rgba(255,138,61,.15)}
+.sun{--bg:#FFFFFF;--panel:#FFFFFF;--surface:#FFFFFF;--surface-2:rgba(0,0,0,.06);--raised:#FFFFFF;--border:rgba(0,0,0,.28);--border-strong:rgba(0,0,0,.5);--dot:rgba(0,0,0,.12);--text:#000000;--muted:#262626;--faint:#333333;--bad:#C21807;--bad-soft:rgba(194,24,7,.12);--warn:#8A4B00;--warn-soft:rgba(138,75,0,.12);color:#000;font-size:15px}
+.sun.m-farm{--accent:#14C95B;--accent-strong:#14C95B;--accent-ink:#000000;--accent-soft:rgba(20,201,91,.2);--accent-text:#00702F}
+.fl .dots,.fl .panel{background:radial-gradient(circle at 1px 1px,var(--dot) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel)}
+.fl .panel{border:1px solid var(--border);border-radius:12px}
+.fl button{font:inherit;cursor:pointer}
+.fl h1,.fl h2{font-weight:500!important;letter-spacing:-.025em}
+.fl .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:none}
+.sun .card{border-width:1.5px}
+.fl .btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text);font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;box-sizing:border-box;transition:background-color 150ms ease,border-color 150ms ease,transform 150ms var(--ease-out)}
+.fl .btn:hover{background:var(--surface-2);transition-duration:0ms,0ms,150ms}
+.fl .btn:active,.fl .press:active{transform:scale(.97)}
+.fl .btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.fl .btn-primary:hover{background:var(--text);opacity:.86}
+.fl .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:4px;border:1px solid var(--border-strong);font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;color:var(--faint);line-height:1}
+.fl .eyebrow{font-family:"Geist Mono",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.fl .mono{font-family:"Geist Mono",ui-monospace,monospace}
+.fl .nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:6px;color:var(--muted);font-size:13px;font-weight:500;text-decoration:none;transition:background-color 150ms ease,color 150ms ease}
+.fl .nav:hover{background:var(--surface-2);color:var(--text);transition-duration:0ms}
+.fl .nav.on{background:var(--surface-2);color:var(--text)}
+.fl .nav.on svg{color:var(--accent)}
+.fl .row{transition:background-color 150ms ease}
+.fl .row:hover{background:var(--surface-2);transition-duration:0ms}
+.fl .pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;background:transparent;color:var(--muted);white-space:nowrap;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.fl .pill.ok{color:var(--accent-text);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.fl .pill.bad{color:var(--bad);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.fl .pill.warn{color:var(--warn);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.fl .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.fl .sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border-strong);border:0;padding:0;flex:none;transition:background-color 150ms ease}
+.fl .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 200ms var(--ease-out)}
+.fl .sw.on{background:var(--accent)}
+.fl .sw.on::after{transform:translateX(14px)}
+.fl .field{height:32px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text);padding:0 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.fl .field:focus,.fl .btn:focus-visible,.fl .nav:focus-visible,.fl .sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fl .chalk-rule{border:0;border-top:1px dashed var(--border-strong);margin:0}
+.fl .tabs{position:relative;display:flex;align-items:center;height:36px}
+.fl .tab{position:relative;z-index:1;height:30px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:500;padding:0;transition:color 150ms ease}
+.fl .tab.on{color:var(--text)}
+.fl .tab-hl{position:absolute;top:3px;height:30px;border-radius:6px;background:var(--surface-2);transition:transform 150ms var(--ease-out),width 150ms var(--ease-out),opacity 150ms ease;pointer-events:none}
+.fl .tab-ul{position:absolute;bottom:-1px;height:2px;border-radius:1px;background:var(--text);transition:transform 250ms var(--ease-out),width 250ms var(--ease-out)}
+@keyframes fl-reveal{from{opacity:0;filter:blur(2px);transform:translateY(6px)}to{opacity:1;filter:none;transform:none}}
+@keyframes fl-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+@keyframes fl-shimmer{from{background-position:-200px 0}to{background-position:200px 0}}
+@keyframes fl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes fl-fade{from{opacity:0}to{opacity:1}}
+@keyframes fl-toast{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+.fl .rise{animation:fl-reveal 400ms var(--ease-chron) both}
+.fl .s1{animation-delay:40ms}.fl .s2{animation-delay:80ms}.fl .s3{animation-delay:120ms}.fl .s4{animation-delay:160ms}
+.fl .draw{stroke-dasharray:400;animation:fl-draw 600ms var(--ease-out) both}
+.fl .pop{animation:fl-pop 150ms var(--ease-out) both}
+.fl .fade{animation:fl-fade 120ms ease both}
+.fl .skel{background:linear-gradient(90deg,var(--surface-2) 0,var(--border) 50%,var(--surface-2) 100%);background-size:400px 100%;animation:fl-shimmer 1.4s linear infinite;border-radius:4px}
+.fl.boomer *,.fl.boomer *::before,.fl.boomer *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){.fl *,.fl *::before,.fl *::after{animation-duration:1ms!important;transition-duration:1ms!important}}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="width: 1280px; height: 820px; display: flex; overflow: hidden">
+  <aside style="width: 320px; flex: none; box-sizing: border-box; padding: 40px 32px; background: transparent; display: flex; flex-direction: column; gap: 32px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <div style="width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; transition: background 320ms var(--ease)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8.7 5v10L12 22l-8.7-5V7z"/></svg></div>
+      <span style="font-size: 16px; font-weight: 600">Farm &amp; Lab</span>
+    </div>
+    <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+      <sc-for list="{{rail}}" as="s" hint-placeholder-count="6">
+        <li style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 10px; border-radius: 8px; background: {{s.bg}}; color: {{s.fg}}; font-size: 14px; font-weight: 500">
+          <span style="width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: {{s.dotBg}}; color: {{s.dotFg}}; border: 1.5px solid {{s.dotBorder}}">{{s.n}}</span>{{s.label}}
+        </li>
+      </sc-for>
+    </ol>
+    <p style="margin: auto 0 0; font-size: 12px; color: var(--faint)">You can change all of this later in Settings.</p>
+  </aside>
+
+  <main class="dots" style="flex: 1; min-width: 0; box-sizing: border-box; padding: 56px 72px; display: flex; flex-direction: column; gap: 28px">
+    <div style="height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden"><div style="height: 100%; width: {{progress}}; background: var(--accent); color: var(--accent-ink); transition: width 320ms var(--ease)"></div></div>
+
+    <sc-if value="{{s0}}" hint-placeholder-val="{{ false }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 16px; max-width: 560px">
+        <span class="eyebrow">Welcome</span>
+        <h1 style="margin: 0; font-size: 36px; line-height: 44px; font-weight: 600; letter-spacing: -0.02em">Let's set things up</h1>
+        <p style="margin: 0; font-size: 16px; line-height: 24px; color: var(--muted)">Five quick choices, then we link your hub. It takes about two minutes. Everything stays on your own network.</p>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{s1}}" hint-placeholder-val="{{ true }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 20px">
+        <div style="display: flex; flex-direction: column; gap: 8px"><span class="eyebrow">Step 1</span><h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">What are you monitoring?</h1></div>
+        <div role="radiogroup" aria-label="Mode" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+          <sc-for list="{{modeCards}}" as="m" hint-placeholder-count="3">
+            <button role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 14px; border: 2px solid {{m.border}}; background: var(--surface); color: var(--text); text-align: left; box-shadow: {{m.sh}}; transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease)">
+              <span style="width: 40px; height: 40px; border-radius: 10px; background: {{m.color}}"></span>
+              <span style="font-size: 17px; font-weight: 600">{{m.label}}</span>
+              <span style="font-size: 13px; line-height: 18px; color: var(--muted)">{{m.desc}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{s2}}" hint-placeholder-val="{{ false }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 20px">
+        <div style="display: flex; flex-direction: column; gap: 8px"><span class="eyebrow">Step 2</span><h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">How would you like the app to look?</h1></div>
+        <div role="radiogroup" aria-label="Boomer Mode" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+          <button role="radio" aria-checked="{{stdChecked}}" onClick="{{pickStd}}" style="display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 14px; border: 2px solid {{stdBorder}}; background: var(--surface); color: var(--text); text-align: left">
+            <span style="font-size: 17px; font-weight: 600">Standard</span>
+            <span style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: var(--surface-2)"><span style="height: 8px; width: 60%; border-radius: 4px; background: var(--border-strong)"></span><span style="height: 8px; width: 80%; border-radius: 4px; background: var(--border-strong)"></span><span style="height: 8px; width: 40%; border-radius: 4px; background: var(--border-strong)"></span></span>
+            <span style="font-size: 13px; color: var(--muted)">Compact layout, everything on screen, animations on.</span>
+          </button>
+          <button role="radio" aria-checked="{{boomChecked}}" onClick="{{pickBoom}}" style="display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 14px; border: 2px solid {{boomBorder}}; background: var(--surface); color: var(--text); text-align: left">
+            <span style="font-size: 17px; font-weight: 600">Boomer Mode</span>
+            <span style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 10px; background: var(--surface-2)"><span style="height: 14px; width: 70%; border-radius: 4px; background: var(--border-strong)"></span><span style="height: 14px; width: 50%; border-radius: 4px; background: var(--border-strong)"></span></span>
+            <span style="font-size: 13px; color: var(--muted)">Big text and buttons, plain words, nothing moves by itself.</span>
+          </button>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{s3}}" hint-placeholder-val="{{ false }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 20px">
+        <div style="display: flex; flex-direction: column; gap: 8px"><span class="eyebrow">Step 3</span><h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">Light or dark?</h1></div>
+        <div role="radiogroup" aria-label="Theme" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+          <sc-for list="{{themeCards}}" as="t" hint-placeholder-count="3">
+            <button role="radio" aria-checked="{{t.checked}}" onClick="{{t.pick}}" style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 14px; border: 2px solid {{t.border}}; background: var(--surface); color: var(--text); text-align: left">
+              <span style="height: 96px; border-radius: 10px; background: {{t.preview}}; border: 1px solid var(--border)"></span>
+              <span style="font-size: 15px; font-weight: 600">{{t.label}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{s4}}" hint-placeholder-val="{{ false }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 20px">
+        <div style="display: flex; flex-direction: column; gap: 8px"><span class="eyebrow">Step 4</span><h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">How much of this computer can we use?</h1><p style="margin: 0; font-size: 14px; color: var(--muted)">We found 16 GB of RAM. Lite is a good fit for older or shared computers.</p></div>
+        <div role="radiogroup" aria-label="Performance" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+          <button role="radio" aria-checked="{{liteChecked}}" onClick="{{pickLite}}" style="display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; border-radius: 14px; border: 2px solid {{liteBorder}}; background: var(--surface); color: var(--text); text-align: left"><span style="display: flex; justify-content: space-between; width: 100%"><span style="font-size: 17px; font-weight: 600">Lite</span><span class="pill">under 3 GB</span></span><span style="font-size: 13px; color: var(--muted)">Shorter history in memory, lighter charts, fades only.</span></button>
+          <button role="radio" aria-checked="{{normChecked}}" onClick="{{pickNorm}}" style="display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; border-radius: 14px; border: 2px solid {{normBorder}}; background: var(--surface); color: var(--text); text-align: left"><span style="display: flex; justify-content: space-between; width: 100%"><span style="font-size: 17px; font-weight: 600">Normal</span><span class="pill">under 6 GB</span></span><span style="font-size: 13px; color: var(--muted)">Full history, detailed charts, all animations.</span></button>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface)">
+          <div style="display: flex; justify-content: space-between; align-items: baseline"><label for="fr-cpu" style="font-size: 15px; font-weight: 600">CPU limit</label><span style="font-size: 22px; font-weight: 600">{{cpu}}%</span></div>
+          <input id="fr-cpu" type="range" min="10" max="100" step="5" value="{{cpu}}" onInput="{{setCpu}}" style="width: 100%; accent-color: var(--accent)">
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{s5}}" hint-placeholder-val="{{ false }}">
+      <section class="rise" style="display: flex; flex-direction: column; gap: 20px; max-width: 620px">
+        <div style="display: flex; flex-direction: column; gap: 8px"><span class="eyebrow">Step 5</span><h1 style="margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em">Link your hub</h1><p style="margin: 0; font-size: 14px; color: var(--muted)">On the Pi run <span class="mono" style="font-size: 13px; padding: 2px 6px; border-radius: 4px; background: var(--surface-2)">sudo hub-node pair</span> and type the code it shows.</p></div>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500">Hub address<input class="field" value="192.168.1.40"></label>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500">Pairing code<input class="field mono" placeholder="0000-0000-0000" style="height: 48px; font-size: 20px; letter-spacing: 0.08em"></label>
+      </section>
+    </sc-if>
+
+    <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: center">
+      <button class="btn" onClick="{{back}}" style="visibility: {{backVis}}">Back</button>
+      <button class="btn btn-primary" onClick="{{next}}" style="height: 44px; padding: 0 22px; font-size: 15px">{{nextLabel}}</button>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { step: 1, mode: 'farm', boomer: false, theme: 'dark', perf: 'lite', cpu: 50 }; }
+  renderVals() {
+    const st = this.state, step = st.step;
+    const names = ['Welcome','Mode','Look','Theme','Performance','Link hub'];
+    const rail = names.map((label, i) => ({ label, n: i < step ? '✓' : String(i + 1),
+      bg: i === step ? 'var(--accent-soft)' : 'transparent', fg: i <= step ? 'var(--text)' : 'var(--faint)',
+      dotBg: i < step ? 'var(--accent)' : 'transparent', dotFg: i < step ? 'var(--accent-ink)' : (i === step ? 'var(--accent-text)' : 'var(--faint)'),
+      dotBorder: i <= step ? 'var(--accent)' : 'var(--border-strong)' }));
+    const modeCards = [['lab','Lab','#3B82F6','Benches, incubators, cold rooms, instruments.'],['farm','Farm','#2FBF71','Fields, greenhouses, soil, irrigation.'],['home','Home','#FF8A3D','Rooms, heating, leaks, doors and lights.']].map(([id, label, color, desc]) => ({ label, color, desc,
+      checked: id === st.mode ? 'true' : 'false', border: id === st.mode ? 'var(--accent)' : 'var(--border)', sh: id === st.mode ? 'var(--shadow-2)' : 'none', pick: () => this.setState({ mode: id }) }));
+    const themeCards = [['light','Light','linear-gradient(135deg,#FFFFFF 50%,#F4F4F5 50%)'],['dark','Dark','linear-gradient(135deg,#16161A 50%,#0D0D10 50%)'],['system','System','linear-gradient(135deg,#FFFFFF 50%,#16161A 50%)']].map(([id, label, preview]) => ({ label, preview,
+      checked: id === st.theme ? 'true' : 'false', border: id === st.theme ? 'var(--accent)' : 'var(--border)', pick: () => this.setState({ theme: id }) }));
+    const sel = (on) => on ? 'var(--accent)' : 'var(--border)';
+    return {
+      rootClass: 'fl m-' + st.mode + (st.theme === 'dark' ? ' dark' : ''),
+      rail, modeCards, themeCards, cpu: st.cpu,
+      s0: step === 0, s1: step === 1, s2: step === 2, s3: step === 3, s4: step === 4, s5: step === 5,
+      progress: Math.round((step / 5) * 100) + '%',
+      stdChecked: st.boomer ? 'false' : 'true', boomChecked: st.boomer ? 'true' : 'false',
+      stdBorder: sel(!st.boomer), boomBorder: sel(st.boomer),
+      pickStd: () => this.setState({ boomer: false }), pickBoom: () => this.setState({ boomer: true }),
+      liteChecked: st.perf === 'lite' ? 'true' : 'false', normChecked: st.perf === 'normal' ? 'true' : 'false',
+      liteBorder: sel(st.perf === 'lite'), normBorder: sel(st.perf === 'normal'),
+      pickLite: () => this.setState({ perf: 'lite' }), pickNorm: () => this.setState({ perf: 'normal' }),
+      setCpu: (e) => this.setState({ cpu: Number(e.target.value) }),
+      backVis: step === 0 ? 'hidden' : 'visible',
+      nextLabel: step === 0 ? 'Get started' : step === 5 ? 'Link hub' : 'Continue',
+      back: () => this.setState({ step: Math.max(0, step - 1) }),
+      next: () => this.setState({ step: step === 5 ? 0 : step + 1 })
+    };
+  }
+}
+</script>
+</body>
+</html>
